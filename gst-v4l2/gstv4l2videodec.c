@@ -1742,23 +1742,6 @@ gst_v4l2_video_dec_sink_event (GstVideoDecoder * decoder, GstEvent * event)
       gst_v4l2_object_unlock (self->v4l2output);
       gst_v4l2_object_unlock (self->v4l2capture);
       break;
-#ifdef USE_V4L2_TARGET_NV
-    case GST_EVENT_GAP:
-      GST_DEBUG_OBJECT (self, "GAP event received");
-      if (GST_V4L2_IS_ACTIVE (self->v4l2capture))
-      {
-          GST_DEBUG_OBJECT (self, "CAPTURE PLANE buffer pool is active"
-                 " so passing on the event to downstream");
-          break;
-      }
-      else
-      {
-          GST_DEBUG_OBJECT (self, "CAPTURE PLANE buffer pool is inactive"
-                  " so ignore the gap event");
-          gst_event_unref(event);
-          return TRUE;
-      }
-#endif
     default:
       break;
   }

@@ -1320,11 +1320,8 @@ gst_jpeg_dec_handle_frame (GstVideoDecoder * bdec, GstVideoCodecFrame * frame)
   gst_video_frame_unmap (&vframe);
 
 #if defined (USE_TARGET_GPU) || defined (USE_TARGET_TEGRA)
-  if (dec->cinfo.IsVendorbuf)
-  {
-      gst_buffer_set_size (frame->output_buffer, dec->cinfo.Vendorbuf_Size);
-      GST_DEBUG_OBJECT(dec, "size set = %ld", gst_buffer_get_size(frame->output_buffer));
-  }
+  gst_buffer_set_size (frame->output_buffer, dec->cinfo.Vendorbuf_Size);
+  //g_print ("size set = %ld\n", gst_buffer_get_size(frame->output_buffer));
 #endif
 
   GST_LOG_OBJECT (dec, "decompressing finished");

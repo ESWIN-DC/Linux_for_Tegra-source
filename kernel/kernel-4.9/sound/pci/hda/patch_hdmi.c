@@ -44,7 +44,6 @@
 #include "hda_codec.h"
 #include "hda_local.h"
 #include "hda_jack.h"
-#include "hda_controller.h"
 
 #if IS_ENABLED(CONFIG_SND_HDA_TEGRA)
 #include <video/tegra_hdmi_audio.h>
@@ -1163,10 +1162,6 @@ static int hdmi_pcm_open(struct hda_pcm_stream *hinfo,
 	per_pin->cvt_nid = per_cvt->cvt_nid;
 	hinfo->nid = per_cvt->cvt_nid;
 
-	/* flip stripe flag for the assigned stream if supported */
-	if (get_wcaps(codec, per_cvt->cvt_nid) & AC_WCAP_STRIPE)
-		azx_stream(get_azx_dev(substream))->stripe = 1;
-
 	snd_hda_codec_write_cache(codec, per_pin->pin_nid, 0,
 			    AC_VERB_SET_CONNECT_SEL,
 			    per_pin->mux_idx);
@@ -1727,10 +1722,8 @@ static bool check_non_pcm_per_cvt(struct hda_codec *codec, hda_nid_t cvt_nid)
 	/* Add sanity check to pass klockwork check.
 	 * This should never happen.
 	 */
-	if (WARN_ON(spdif == NULL)) {
-		mutex_unlock(&codec->spdif_mutex);
+	if (WARN_ON(spdif == NULL))
 		return true;
-	}
 	non_pcm = !!(spdif->status & IEC958_AES0_NONAUDIO);
 	mutex_unlock(&codec->spdif_mutex);
 	return non_pcm;
@@ -1756,7 +1749,7 @@ static int generic_hdmi_playback_pcm_prepare(struct hda_pcm_stream *hinfo,
 	hda_nid_t pin_nid;
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	bool non_pcm;
-	int pinctl, stripe;
+	int pinctl;
 	int err;
 
 	mutex_lock(&spec->pcm_lock);
@@ -1800,18 +1793,19 @@ static int generic_hdmi_playback_pcm_prepare(struct hda_pcm_stream *hinfo,
 	per_pin->channels = substream->runtime->channels;
 	per_pin->setup = true;
 
-	if (get_wcaps(codec, cvt_nid) & AC_WCAP_STRIPE) {
-		stripe = snd_hdac_get_stream_stripe_ctl(&codec->bus->core,
-							substream);
-		snd_hda_codec_write(codec, cvt_nid, 0,
-					AC_VERB_SET_STRIPE_CONTROL,
-					stripe);
-	}
-
 #if IS_ENABLED(CONFIG_SND_HDA_TEGRA)
 	if (is_tegra_hdmi(codec)) {
+		int stripe;
 		int err = 0;
 		struct hdmi_eld *pin_eld = &per_pin->sink_eld;
+
+		/* For multi SOR, program SDO lines to support required bw */
+		stripe = snd_hdac_get_stream_stripe_ctl(&codec->bus->core,
+							substream);
+
+		snd_hda_codec_write(codec, cvt_nid, 0,
+				    AC_VERB_SET_STRIPE_CONTROL,
+				    stripe);
 
 		if ((substream->runtime->channels == 2) &&
 			is_pcm_format(format))
@@ -1890,8 +1884,6 @@ static int hdmi_pcm_close(struct hda_pcm_stream *hinfo,
 		snd_BUG_ON(!per_cvt->assigned);
 		per_cvt->assigned = 0;
 		hinfo->nid = 0;
-
-		azx_stream(get_azx_dev(substream))->stripe = 0;
 
 		mutex_lock(&spec->pcm_lock);
 		snd_hda_spdif_ctls_unassign(codec, pcm_idx);
@@ -2117,19 +2109,18 @@ static int generic_hdmi_build_controls(struct hda_codec *codec)
 					get_pcm_rec(spec, pcm_idx)->device);
 		if (err < 0)
 			return err;
-
-		/* add control for custom ELD */
-		err = hdmi_create_custom_eld_ctl(codec, pcm_idx,
-					 get_pcm_rec(spec, pcm_idx)->device);
-		if (err < 0)
-			return err;
 	}
 
 	for (pin_idx = 0; pin_idx < spec->num_pins; pin_idx++) {
 		struct hdmi_spec_per_pin *per_pin = get_pin(spec, pin_idx);
-		struct hdmi_eld *pin_eld = &per_pin->sink_eld;
 
-		pin_eld->eld_valid = false;
+		/* add control for custom ELD */
+		err = hdmi_create_custom_eld_ctl(codec,
+						 per_pin->pin_nid,
+						 HDA_PCM_TYPE_HDMI);
+		if (err < 0)
+			return err;
+
 		hdmi_present_sense(per_pin, 0);
 	}
 
@@ -3798,11 +3789,6 @@ HDA_CODEC_ENTRY(0x10de0095, "GPU 95 HDMI/DP",	patch_nvhdmi),
 HDA_CODEC_ENTRY(0x10de0097, "GPU 97 HDMI/DP",	patch_nvhdmi),
 HDA_CODEC_ENTRY(0x10de0098, "GPU 98 HDMI/DP",	patch_nvhdmi),
 HDA_CODEC_ENTRY(0x10de0099, "GPU 99 HDMI/DP",	patch_nvhdmi),
-HDA_CODEC_ENTRY(0x10de009a, "GPU 9a HDMI/DP",	patch_nvhdmi),
-HDA_CODEC_ENTRY(0x10de009d, "GPU 9d HDMI/DP",	patch_nvhdmi),
-HDA_CODEC_ENTRY(0x10de009e, "GPU 9e HDMI/DP",	patch_nvhdmi),
-HDA_CODEC_ENTRY(0x10de009f, "GPU 9f HDMI/DP",	patch_nvhdmi),
-HDA_CODEC_ENTRY(0x10de00a0, "GPU a0 HDMI/DP",	patch_nvhdmi),
 HDA_CODEC_ENTRY(0x10de8001, "MCP73 HDMI",	patch_nvhdmi_2ch),
 HDA_CODEC_ENTRY(0x10de8067, "MCP67/68 HDMI",	patch_nvhdmi_2ch),
 HDA_CODEC_ENTRY(0x11069f80, "VX900 HDMI/DP",	patch_via_hdmi),

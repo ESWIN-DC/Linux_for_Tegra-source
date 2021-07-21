@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2008 Travis Geiselbrecht
- * Copyright (c) 2012-2021, NVIDIA CORPORATION. All rights reserved
+ * Copyright (c) 2012-2019, NVIDIA CORPORATION. All rights reserved
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files
@@ -49,6 +49,5 @@ status_t platform_validate_ns_phys_range(paddr_t ns_addr, uint64_t ns_size);
 bool platform_validate_range(uint64_t bound_base, uint64_t bound_size,
 				uint64_t test_base, uint64_t test_size);
 bool platform_is_denver_cpu(void);
-void platform_libc_rand_init(void);
 
 #endif

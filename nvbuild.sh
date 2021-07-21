@@ -26,7 +26,7 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-# This script builds trusty sources in this directory.
+# This script builds uboot sources in this directory.
 # Usage: ./${SCRIPT_NAME}.sh [OPTIONS]
 set -e
 
@@ -39,23 +39,11 @@ source "${SCRIPT_DIR}/nvcommon_build.sh"
 function usage {
         cat <<EOM
 Usage: ./${SCRIPT_NAME} [OPTIONS]
-This script builds trusty sources in this directory.
+This script builds uboot sources in this directory.
 It supports following options.
 OPTIONS:
         -h                  Displays this help
-        -b <board_name>     Target board
-                            e.g. -b t186ref
 EOM
-}
-
-function check_pre_req {
-	check_vars "NV_TARGET_BOARD" "CROSS_COMPILE_ARM_PATH"
-	CROSS_COMPILE_ARM="${CROSS_COMPILE_ARM_PATH}/bin/arm-linux-gnueabihf-"
-
-	if [ ! -f "${CROSS_COMPILE_ARM}gcc" ]; then
-		echo " path ${CROSS_COMPILE_ARM}gcc does not exist"
-		exit 1
-	fi
 }
 
 # parse input parameters
@@ -66,10 +54,6 @@ function parse_input_param {
 				usage
 				exit 0
 				;;
-			-b)
-				NV_TARGET_BOARD="${2}"
-				shift 2
-				;;
 			*)
 				echo "Error: Invalid option ${1}"
 				usage
@@ -79,52 +63,38 @@ function parse_input_param {
 	done
 }
 
-function build_trusty_sources {
-	echo "Building trusty sources .."
+function build_uboot_sources {
+	echo "Building u-boot sources.."
 
 	# execute building steps
-	local source_dir="${SCRIPT_DIR}/trusty/"
-	local make_target=""
-	local target_socs=()
+	source_dir="${SCRIPT_DIR}/u-boot/"
+	local config_file=
 	if [ "${NV_TARGET_BOARD}" = "t210ref" ]; then
-		make_target="t210"
-		target_socs=("t210")
+		config_file="p2371-2180_defconfig"
 	elif [ "${NV_TARGET_BOARD}" = "t186ref" ]; then
-		make_target="t186"
-		target_socs=("t186" "t194")
+		config_file="p2771-0000-500_defconfig"
 	else
 		echo "${FUNCNAME[0]}: ${NV_TARGET_BOARD} is not supported"
 		return 0
 	fi
 
-	for target_soc in "${target_socs[@]}"; do
-		# shellcheck disable=SC2154
-		echo "Building sources in ${src_pkg} for ${make_target}/${target_soc}"
+	"${MAKE_BIN}" -C "${source_dir}" \
+		CROSS_COMPILE="${CROSS_COMPILE_AARCH64}" \
+		"${config_file}"
+	"${MAKE_BIN}" -C "${source_dir}" \
+		CROSS_COMPILE="${CROSS_COMPILE_AARCH64}" \
+		-j"${NPROC}" --output-sync=target
 
-		"${MAKE_BIN}" -C "${source_dir}" \
-			"${make_target}" \
-			PROJECT="${make_target}" \
-			TARGET="${make_target}" \
-			TARGET_SOC="${target_soc}" \
-			BUILDROOT="./${make_target}-${target_soc}" \
-			TOOLCHAIN_PREFIX="${CROSS_COMPILE_AARCH64}" \
-			ARCH_arm_TOOLCHAIN_PREFIX="${CROSS_COMPILE_ARM}" \
-			ARCH_arm64_TOOLCHAIN_PREFIX="${CROSS_COMPILE_AARCH64}" \
-			DEBUG=0 DEBUG_LVL=0 DEFAULT_OTE_APP_DEBUGLEVEL=1 NOECHO=@ \
-			TRUSTY_VARIANT=l4t TRUSTY_MULTI_GUEST_CONFIGURATION= \
-			-j"${NPROC}" --output-sync=target
+	bin="${source_dir}/u-boot.bin"
+	if [ ! -f "${bin}" ]; then
+		echo "Error: Missing output binary ${bin}"
+		exit 1
+	fi
 
-		bin="${source_dir}/${make_target}-${target_soc}/build-${make_target}/lk.bin"
-		if [ ! -f "${bin}" ]; then
-			echo "Error: Missing output binary ${bin}"
-			exit 1
-		fi
-	done
-
-	echo "Trusty sources compiled successfully."
+	echo "U-boot sources compiled successfully."
 }
 
 # shellcheck disable=SC2068
 parse_input_param $@
-check_pre_req
-build_trusty_sources
+check_vars "NV_TARGET_BOARD"
+build_uboot_sources
