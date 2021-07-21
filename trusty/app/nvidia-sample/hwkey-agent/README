@@ -1,0 +1,63 @@
+**********************************************************************
+                           Linux for Tegra
+                         Trusty hwkey-agent
+                                README
+**********************************************************************
+This README provides an overview of the hwkey-agent TA and the
+default EKB binary. This TA is intended to be used for the encrypted
+keyblob feature.
+
+----------------------------------------------------------------------
+hwkey-agent TA Overview
+----------------------------------------------------------------------
+
+The Trusty source package contains a TA named hwkey-agent, which is
+intended to serve as a starting point for developers to implement
+their encrypted keyblob solution. The TA shows how to perform the
+following steps from the the 'Encrypted Keyblob Decryption' section in
+the 'Trusty, a Trusted Execution Environment' topic of the 'Jetson
+Linux Driver Package Development Guide'. Also reference the 'Key
+Maintenance & EKBs' section for more detail about the KDF (Key
+Derivation Function) from the keyslot and extraction of EKB.
+
+The EKB layout:
+| ------------------------- |
+| EKB header     (16 bytes) |
+| ------------------------- |
+| EKB_cmac       (16 bytes) |
+| ------------------------- |
+| Random_IV      (16 bytes) |
+| ------------------------- |
+| EKB_ciphertext (16 bytes) |
+| ------------------------- |
+
+The steps of key derivation and EKB verification and extraction:
+* Derive RKs (Root Key)
+  * Need two fixed vectors
+    * FV_for_ekb
+    * FV_for_ssk_dk
+  * Derive RKs from SE keyslots
+    * KEK2_RK_for_ekb = AES-128-ECB(KEK2 keyslot, FV_for_ekb)
+    * SSK_RK = AES-128-ECB(SSK keyslot, FV_for_ssk_dk)
+* Generate DKs (Derived keys) that follows NIST-SP-800-108 KDF scheme
+  * EKB_EK = NIST-SP-800-108(KEK2_RK_for_ekb, ...)
+  * EKB_AK = NIST-SP-800-108(KEK2_RK_for_ekb, ...)
+  * SSK_DK = NIST-SP-800-108(SSK_RK, ...)
+* EKB verification
+  * AES-CMAC_verify(EKB_cmac,
+                    Key = EKB_AK,
+                    Data = (Random_IV + EKB_ciphertext)
+* EKB extraction
+  * If CMAC matches
+    * EKB_plaintext = AES-128-CBC_decrypt(IV = Random_IV,
+                                          Key = EKB_EK,
+                                          Data = EKB_ciphertext)
+
+The crypto service in TA:
+The 'hwkey-agent' TA also provides a crypto service, which creates an
+IPC channel for the userspace CA to utilize the user-defined key in
+EKB to perform encryption or decryption via OpenSSL library in the TA.
+
+The hwkey-agent TA is located inside the trusty application directory.
+The TA assumes that the default EKB binary is flashed onthe device's
+EKS partition.

@@ -1,0 +1,90 @@
+/* FIXME: This file should ideally be auto-generated */
+
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
+#include <stdio.h>
+
+#ifdef TEGRA_64
+#define ABI_DIR "aarch64-linux-gnu"
+#else
+#define ABI_DIR "arm-linux-gnueabihf"
+#endif
+
+#ifdef USE_OMX_TARGET_TEGRA
+const char *default_config =\
+"[omxmpeg4videodec]\n"
+"type-name=GstOMXMPEG4VideoDec\n"
+"core-name=/usr/lib/" ABI_DIR "/tegra/libnvomx.so\n"
+"component-name=OMX.Nvidia.mp4.decode\n"
+"rank=266\n"
+"\n"
+"[omxh264dec]\n"
+"type-name=GstOMXH264Dec\n"
+"core-name=/usr/lib/" ABI_DIR "/tegra/libnvomx.so\n"
+"component-name=OMX.Nvidia.h264.decode\n"
+"rank=266\n"
+"\n"
+"[omxh265dec]\n"
+"type-name=GstOMXH265Dec\n"
+"core-name=/usr/lib/" ABI_DIR "/tegra/libnvomx.so\n"
+"component-name=OMX.Nvidia.h265.decode\n"
+"rank=266\n"
+"\n"
+"[omxvp8dec]\n"
+"type-name=GstOMXVP8Dec\n"
+"core-name=/usr/lib/" ABI_DIR "/tegra/libnvomx.so\n"
+"component-name=OMX.Nvidia.vp8.decode\n"
+"rank=266\n"
+"\n"
+"[omxvp9dec]\n"
+"type-name=GstOMXVP9Dec\n"
+"core-name=/usr/lib/" ABI_DIR "/tegra/libnvomx.so\n"
+"component-name=OMX.Nvidia.vp9.decode\n"
+"rank=266\n"
+"\n"
+"[omxmpeg2videodec]\n"
+"type-name=GstOMXMPEG2VideoDec\n"
+"core-name=/usr/lib/" ABI_DIR "/tegra/libnvomx.so\n"
+"component-name=OMX.Nvidia.mpeg2v.decode\n"
+"rank=266\n"
+"\n"
+"[omxwmvdec]\n"
+"type-name=GstOMXWMVDec\n"
+"core-name=/usr/lib/" ABI_DIR "/tegra/libnvomx.so\n"
+"component-name=OMX.Nvidia.vc1.decode\n"
+"rank=266\n"
+"\n"
+"[omxh264enc]\n"
+"type-name=GstOMXH264Enc\n"
+"core-name=/usr/lib/" ABI_DIR "/tegra/libnvomx.so\n"
+"component-name=OMX.Nvidia.h264.encoder\n"
+"rank=266\n"
+"\n"
+"[omxh265enc]\n"
+"type-name=GstOMXH265Enc\n"
+"core-name=/usr/lib/" ABI_DIR "/tegra/libnvomx.so\n"
+"component-name=OMX.Nvidia.h265.encoder\n"
+"rank=266\n"
+"\n"
+"[omxvp8enc]\n"
+"type-name=GstOMXVP8Enc\n"
+"core-name=/usr/lib/" ABI_DIR "/tegra/libnvomx.so\n"
+"component-name=OMX.Nvidia.vp8.encoder\n"
+"rank=266\n"
+"\n"
+"[omxvp9enc]\n"
+"type-name=GstOMXVP9Enc\n"
+"core-name=/usr/lib/" ABI_DIR "/tegra/libnvomx.so\n"
+"component-name=OMX.Nvidia.vp9.encoder\n"
+"rank=266\n"
+"\n"
+"[nvoverlaysink]\n"
+"type-name=GstNvOverlaySink\n"
+"core-name=/usr/lib/" ABI_DIR "/tegra/libnvomx.so\n"
+"component-name=OMX.Nvidia.std.iv_renderer.overlay.yuv420\n"
+"rank=266";
+#else
+const char *default_config = NULL;
+#endif

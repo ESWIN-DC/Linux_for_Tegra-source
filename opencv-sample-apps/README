@@ -1,0 +1,154 @@
+###############################################################################
+#
+# Copyright (c) 2019, NVIDIA CORPORATION. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions
+# are met:
+#  * Redistributions of source code must retain the above copyright
+#    notice, this list of conditions and the following disclaimer.
+#  * Redistributions in binary form must reproduce the above copyright
+#    notice, this list of conditions and the following disclaimer in the
+#    documentation and/or other materials provided with the distribution.
+#  * Neither the name of NVIDIA CORPORATION nor the names of its
+#    contributors may be used to endorse or promote products derived
+#    from this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY
+# EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+# PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
+# CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+# EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+# PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+# PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
+# OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#
+###############################################################################
+
+These samples demonstrate how to integrate NVIDIA accelerated GStreamer
+plugins with the custom OpenCV software library to acquire frames for
+computation.
+
+-------------------------------------------------------------------------------
+Sample-wise contents:
+
+- opencv_camera:
+    opencv_gst_camera.cpp-  File for GStreamer nvarguscamerasrc plugin use case
+                        to use CSI camera for capture.
+- opencv_decoder:
+    opencv_gst_decoder.cpp- File for GStreamer nvv4l2decoder plugin use case
+                        to decode an H264 mp4 file.
+- opencv_encoder:
+    opencv_gst_encoder.cpp- The file opens a CSI nvarguscamerasrc camera pipeline
+                        for capture and encoding to an H264 mp4 file.
+
+-------------------------------------------------------------------------------
+Prerequisites:
+
+The development environment must include GStreamer libraries and OpenCV 3.3.1
+installed through JetPack.
+
+- GStreamer
+    Installation command:
+
+        sudo apt-get install libgstreamer1.0-0 gstreamer1.0-plugins-base \
+        gstreamer1.0-libav gstreamer1.0-plugins-good gstreamer1.0-plugins-bad \
+        gstreamer1.0-plugins-ugly gstreamer1.0-tools gstreamer1.0-alsa
+
+- OpenCV 3.3.1
+    JetPack builds OpenCV with GStreamer enabled. To verify GStreamer support,
+    run on python shell:
+
+        >>> import cv2
+        >>> print (cv2.getBuildInformation())
+
+    GStreamer flags should be enabled in the output.
+
+        >>>
+        General configuration for OpenCV 3.3.1 ================================
+          Version control:               3.3.1-2-g31ccdfe11
+
+          Platform:
+            Timestamp:                   2019-02-06T09:45:58Z
+            Host:                        Linux 4.9.140-tegra aarch64
+            CMake:                       2.8.12.2
+            CMake generator:             Unix Makefiles
+            CMake build tool:            /usr/bin/make
+            Configuration:               Release
+          ...
+          ...
+          ...
+
+          Video I/O:
+            DC1394 1.x:                  NO
+            DC1394 2.x:                  NO
+            FFMPEG:                      YES
+              avcodec:                   YES (ver 57.107.100)
+              avformat:                  YES (ver 57.83.100)
+              avutil:                    YES (ver 55.78.100)
+              swscale:                   YES (ver 4.8.100)
+              avresample:                NO
+            GStreamer:
+              base:                      YES (ver 1.14.1)
+              video:                     YES (ver 1.14.1)
+              app:                       YES (ver 1.14.1)
+              riff:                      YES (ver 1.14.1)
+              pbutils:                   YES (ver 1.14.1)
+            OpenNI:                      NO
+          ...
+          ...
+          ...
+          Install path:                  /usr
+
+          cvconfig.h is in:              /tmp/build_opencv/build
+
+-------------------------------------------------------------------------------
+Compliation:
+
+Each sample directory contains a makefile to build the respective application.
+The command is:
+
+    cd opencv-sample-apps/[SAMPLE_DIR]
+    make
+
+    Example:
+        $ cd opencv-sample-apps/opencv_camera
+        $ make
+
+-------------------------------------------------------------------------------
+Execution:
+
+To run each sample:
+
+- opencv_camera:
+    $ ./opencv_nvgstcam [--Options]
+        --h help            : Use case help
+        --width             : capture width
+        --height            : capture height
+        --fps               : Frames per second
+    Example:
+        $ ./opencv_nvgstcam --width=1920 --height=1080 --fps=30
+
+- opencv_decoder:
+    $ ./opencv_nvgstdec [--Options]
+        --help -h           : Use case help
+        --file-path         : Absolute path of file to be decoded
+        --show-fps          : Display number of frames decoded per second
+                            from GStreamer pipeline
+    Example:
+        $ ./opencv_nvgstdec --file-path=[_FILEPATH_]
+
+-opencv_encoder
+    $ ./opencv_nvgstenc [--Options]
+        --h help            : Use case help
+        --width             : capture width
+        --height            : capture height
+        --fps               : Frames per second
+        --filename          : Target H264 encoded filename
+        --time              : Duration for capture in seconds
+    Example:
+        $ ./opencv_nvgstenc --width=1920 --height=1080 --fps=30 --time=60
+            --filename= test_h264_1080p_30fps.mp4

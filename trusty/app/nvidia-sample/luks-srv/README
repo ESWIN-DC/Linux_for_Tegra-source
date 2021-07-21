@@ -1,0 +1,47 @@
+**********************************************************************
+                           Linux for Tegra
+                         Trusty luks-srv
+                                README
+**********************************************************************
+This README provides an overview of the luks-srv TA, which is intended
+to be used for hardware-based passphrase generation.
+
+----------------------------------------------------------------------
+luks-srv TA Overview
+----------------------------------------------------------------------
+
+The luks-srv TA generates a hardware-based passphrase which the LUKS
+utility uses to unlock the encrypted disks in the nonsecure world.
+There are two parts to the TA. The first part is the process of
+deriving the EKB key from the hwkey-agent TA. The second part is
+using the derived keys to generate passphrase.
+
+The key derivation flow is:
+ 1. The luks-srv TA queries EKB key and ECID (embedded chip ID) from
+    the hwkey-agent TA. The ECID is a unique per-chip ID in the fuse.
+    This can help to derive a unique per-device key.
+ 2. Derive a unique per-device LUKS key:
+    luks_key_unique =  KDF(ekb_key,
+                           label_str="luks-srv-ecid",
+                           context_str="${ECID}")
+ 3. Derive a generic LUKS key:
+    luks_key_generic = KDF(ekb_key,
+                           label_str="luks-srv-generic",
+                           context_str="generic-key")
+The KDF (Key Derivation Function) is NIST-SP-800-108.
+
+The luks-srv TA generates the key pairs of both keys above. The
+difference between the two types of keys is that the generic key is
+the same for any devices that use the same EKB-based key, while the
+per-device unique key is the unique key on each of the devices.
+You can choose which key to use depending on the use case.
+
+The passphrase generation flow is:
+ 1. The luks-srv TA uses the derived keys to generate the passphrase.
+ 2. Generate the passphrase:
+    passphrase = KDF(luks_key,
+                     label_str="luks-srv-passphrase",
+                     context_str="disk's UUID or user's input str")
+
+The userspace CA can query the passphrase for the LUKS utilities to
+unlock the encrypted disk.

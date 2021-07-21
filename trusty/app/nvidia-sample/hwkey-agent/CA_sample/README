@@ -1,0 +1,96 @@
+**********************************************************************
+                           Linux for Tegra
+                         Trusty CA hwkey-app
+                                README
+**********************************************************************
+This README provides an overview of the hwkey-app CA and how to
+compile and use it.
+
+----------------------------------------------------------------------
+hwkey-app CA Overview
+----------------------------------------------------------------------
+
+This is a CA sample program named 'hwkey-app' that is intended to work
+with the 'hwkey-agent' TA. It provides encryption and decryption
+functions with the keys provided by TA. The TA provides two keys. It
+extracts one from EKB and stores it in TA. It derives the other,
+SSK_DK, from the SSK keyslot.
+
+Note that CA cannot see or touch the key directly. To use the keys,
+CA needs to go with two different channels.
+
+Using the user-defined key in EKB:
+The CA must use the IPC with the TA and send the request with payload
+to TA to perform the crypto operation. Once TA receives the request,
+it processes the data and uses the OpenSSL library to perform the
+operation with the user-defined key. This is a software-based crypto
+operation provided by TA.
+
+Using the SSK keyslot:
+The same crypto operation can be performed by an alternative means.
+That is the SE (Security Engine). The CA can invoke the
+operation via Tegra-crypto library, which will initiate the SE
+hardware and send the request to the Tegra crypto driver in the Linux
+kernel. This is a hardware-based crypto operation provided by the SE.
+
+Note that, because the SE is a shared resource that can be used by
+other clients or programs, this feature is disabled by default.
+You must check if the SE is available on the target and enable it
+manually in the 'makefile'.
+
+----------------------------------------------------------------------
+How to compile
+----------------------------------------------------------------------
+* Cross compiling on host machine:
+Export the cross compiler's pathname and run 'make'.
+
+An example of cross compiling on host machine.
+$> export CROSS_COMPILER=<Path to the cross compiler>
+$> make
+
+* Building on the native device:
+If the compiler has been installed on the target, then you can move
+the code on the target and build it.
+
+An example of building on the native device.
+$> make
+
+----------------------------------------------------------------------
+How to use hwkey-app
+----------------------------------------------------------------------
+Check the command usage with "--help" parameter.
+$> ./hwkey-app --help
+Usage: hwkey-app [OPTION...] -e [-d] -i <file> -o <out-file> -t|[s]
+
+  -d                         Decryption mode
+  -e                         Encryption mode
+  -i, --in=file              Input file for encrypt/decrypt
+  -o, --out=outfile          Output file
+  -s, --tegracrypto          Encrypt using SE via /dev/tegra-crypto
+  -t, --trusty               Encrypt using Trusty
+  -?, --help                 Give this help list
+      --usage                Give a short usage message
+
+----------------------------------------------------------------------
+Device node permission
+----------------------------------------------------------------------
+You must have root permission or add the user to the "trusty" and
+"crypto" groups to run the command, because the device nodes of both
+Trusty IPC and Tegra crypto must have root permission or be part of
+the "trusty" and "crypto" groups to get the access permission.
+
+An example of a file encryption with Trusty.
+$> ./hwkey-app -e -i <input_file> -o <output_file> -t -p pkcs7
+
+An example of a file decryption with Trusty.
+$> ./hwkey-app -d -i <input_file> -o <output_file> -t -p pkcs7
+
+If the Tegra SE has been enabled, you can switch the '-t' to '-s'.
+
+----------------------------------------------------------------------
+Limitation
+----------------------------------------------------------------------
+There is a limitation of AES CBC encryption/decryption algorithm. The
+data size must be aligned with AES block size, which is 16 bytes in
+this sample. Thus if the data size is not multiple of AES block size,
+the demo CA will return error.

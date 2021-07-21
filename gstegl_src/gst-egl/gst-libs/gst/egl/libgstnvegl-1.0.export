@@ -1,0 +1,19 @@
+# Copyright (c) 2018, NVIDIA CORPORATION.  All rights reserved.
+gst_context_get_egl_display
+gst_context_new_egl_display
+gst_egl_display_get
+gst_egl_display_get_type
+gst_egl_display_image_create
+gst_egl_display_new
+gst_egl_display_ref
+gst_egl_display_unref
+gst_egl_image_allocator_alloc
+gst_egl_image_allocator_obtain
+gst_egl_image_allocator_wrap
+gst_egl_image_memory_get_display
+gst_egl_image_memory_get_image
+gst_egl_image_memory_get_orientation
+gst_egl_image_memory_get_type
+gst_egl_image_memory_is_mappable
+gst_egl_image_memory_set_orientation
+gst_is_egl_image_memory

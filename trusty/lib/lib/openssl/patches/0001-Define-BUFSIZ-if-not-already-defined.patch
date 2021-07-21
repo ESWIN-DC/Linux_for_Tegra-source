@@ -1,0 +1,27 @@
+From 45b43ea5c04d6cc27bc38712c2e8b0b0eb66cf0a Mon Sep 17 00:00:00 2001
+From: Harinarayan Bhatta <hbhatta@nvidia.com>
+Date: Tue, 21 Jul 2020 11:43:18 +0530
+Subject: [PATCH] Define BUFSIZ if not already defined
+
+---
+ crypto/evp/evp_key.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/crypto/evp/evp_key.c b/crypto/evp/evp_key.c
+index e5ac107..b8194b3 100644
+--- a/crypto/evp/evp_key.c
++++ b/crypto/evp/evp_key.c
+@@ -14,6 +14,10 @@
+ #include <openssl/evp.h>
+ #include <openssl/ui.h>
+ 
++#ifndef BUFSIZ
++#define BUFSIZ 256
++#endif
++
+ /* should be init to zeros. */
+ static char prompt_string[80];
+ 
+-- 
+2.7.4
+

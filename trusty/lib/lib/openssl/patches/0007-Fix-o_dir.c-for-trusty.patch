@@ -1,0 +1,27 @@
+From f64a3c02b6cc389c7290323da96dfaa93c003f68 Mon Sep 17 00:00:00 2001
+From: Harinarayan Bhatta <hbhatta@nvidia.com>
+Date: Tue, 21 Jul 2020 11:56:34 +0530
+Subject: [PATCH] Fix o_dir.c for trusty
+
+---
+ crypto/o_dir.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/crypto/o_dir.c b/crypto/o_dir.c
+index fca9c75..f7c0fe0 100644
+--- a/crypto/o_dir.c
++++ b/crypto/o_dir.c
+@@ -23,7 +23,9 @@
+ #include "internal/o_dir.h"
+ 
+ #define LPDIR_H
+-#if defined OPENSSL_SYS_UNIX || defined DJGPP \
++#if defined OPENSSL_SYS_TRUSTY
++# include "LPdir_nyi.c"
++#elif  defined OPENSSL_SYS_UNIX || defined DJGPP \
+     || (defined __VMS_VER && __VMS_VER >= 70000000)
+ # include "LPdir_unix.c"
+ #elif defined OPENSSL_SYS_VMS
+-- 
+2.7.4
+

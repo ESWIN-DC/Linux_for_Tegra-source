@@ -1,0 +1,59 @@
+From 9542126b0c948df3fc32000405d64cd1dde480f1 Mon Sep 17 00:00:00 2001
+From: Harinarayan Bhatta <hbhatta@nvidia.com>
+Date: Tue, 4 Aug 2020 12:04:24 +0530
+Subject: [PATCH] remove ED25519 and ED448 to reduce image size
+
+Create a new define and remove ED25519 and ED448 symbol dependency to
+reduce image size.
+---
+ crypto/asn1/standard_methods.h | 4 ++--
+ crypto/evp/pmeth_lib.c         | 4 ++--
+ 2 files changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/crypto/asn1/standard_methods.h b/crypto/asn1/standard_methods.h
+index e74de55..d50bc54 100644
+--- a/crypto/asn1/standard_methods.h
++++ b/crypto/asn1/standard_methods.h
+@@ -40,7 +40,7 @@ static const EVP_PKEY_ASN1_METHOD *standard_methods[] = {
+ #ifndef OPENSSL_NO_DH
+     &dhx_asn1_meth,
+ #endif
+-#ifndef OPENSSL_NO_EC
++#ifndef OPENSSL_NO_EC_ED25518_ED448
+     &ecx25519_asn1_meth,
+     &ecx448_asn1_meth,
+ #endif
+@@ -50,7 +50,7 @@ static const EVP_PKEY_ASN1_METHOD *standard_methods[] = {
+ #ifndef OPENSSL_NO_SIPHASH
+     &siphash_asn1_meth,
+ #endif
+-#ifndef OPENSSL_NO_EC
++#ifndef OPENSSL_NO_EC_ED25518_ED448
+     &ed25519_asn1_meth,
+     &ed448_asn1_meth,
+ #endif
+diff --git a/crypto/evp/pmeth_lib.c b/crypto/evp/pmeth_lib.c
+index 603ccd8..a6a8eaa 100644
+--- a/crypto/evp/pmeth_lib.c
++++ b/crypto/evp/pmeth_lib.c
+@@ -49,7 +49,7 @@ static const EVP_PKEY_METHOD *standard_methods[] = {
+     &scrypt_pkey_meth,
+ #endif
+     &tls1_prf_pkey_meth,
+-#ifndef OPENSSL_NO_EC
++#ifndef OPENSSL_NO_EC_ED25518_ED448
+     &ecx25519_pkey_meth,
+     &ecx448_pkey_meth,
+ #endif
+@@ -60,7 +60,7 @@ static const EVP_PKEY_METHOD *standard_methods[] = {
+ #ifndef OPENSSL_NO_SIPHASH
+     &siphash_pkey_meth,
+ #endif
+-#ifndef OPENSSL_NO_EC
++#ifndef OPENSSL_NO_EC_ED25518_ED448
+     &ed25519_pkey_meth,
+     &ed448_pkey_meth,
+ #endif
+-- 
+2.7.4
+

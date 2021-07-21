@@ -1,0 +1,34 @@
+From 70d4c00d1fb95f17b699597649ef255c72528b9a Mon Sep 17 00:00:00 2001
+From: Harinarayan Bhatta <hbhatta@nvidia.com>
+Date: Fri, 7 Aug 2020 12:24:45 +0530
+Subject: [PATCH] conf: no config file for trusty
+
+Trusty does not use config files for openssl.
+---
+ crypto/conf/conf_sap.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/crypto/conf/conf_sap.c b/crypto/conf/conf_sap.c
+index 82105de..edafe52 100644
+--- a/crypto/conf/conf_sap.c
++++ b/crypto/conf/conf_sap.c
+@@ -59,13 +59,15 @@ int openssl_config_int(const OPENSSL_INIT_SETTINGS *settings)
+             filename, appname, flags);
+ #endif
+ 
++#ifndef OPENSSL_SYS_TRUSTY
+     OPENSSL_load_builtin_modules();
++#endif
+ #ifndef OPENSSL_NO_ENGINE
+     /* Need to load ENGINEs */
+     ENGINE_load_builtin_engines();
+ #endif
+     ERR_clear_error();
+-#ifndef OPENSSL_SYS_UEFI
++#if !defined(OPENSSL_SYS_UEFI) && !defined(OPENSSL_SYS_TRUSTY)
+     ret = CONF_modules_load_file(filename, appname, flags);
+ #endif
+     openssl_configured = 1;
+-- 
+2.7.4
+

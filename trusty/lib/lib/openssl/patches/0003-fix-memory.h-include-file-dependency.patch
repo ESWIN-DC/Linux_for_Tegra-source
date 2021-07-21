@@ -1,0 +1,25 @@
+From 9eff263c6b4baf1bf32bd915d452d50f4e1ad4f4 Mon Sep 17 00:00:00 2001
+From: Harinarayan Bhatta <hbhatta@nvidia.com>
+Date: Tue, 21 Jul 2020 11:59:50 +0530
+Subject: [PATCH] fix memory.h include file dependency
+
+---
+ crypto/pkcs7/bio_pk7.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/crypto/pkcs7/bio_pk7.c b/crypto/pkcs7/bio_pk7.c
+index f5c2ab5..220d134 100644
+--- a/crypto/pkcs7/bio_pk7.c
++++ b/crypto/pkcs7/bio_pk7.c
+@@ -11,7 +11,7 @@
+ #include <openssl/pkcs7.h>
+ #include <openssl/bio.h>
+ 
+-#if !defined(OPENSSL_SYS_VXWORKS)
++#if (!defined(OPENSSL_SYS_VXWORKS) && !defined(OPENSSL_SYS_TRUSTY))
+ # include <memory.h>
+ #endif
+ #include <stdio.h>
+-- 
+2.7.4
+
