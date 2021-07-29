@@ -124,6 +124,16 @@ gst_nv_video_context_render_thread_func (GstNvVideoContext * context)
       break;
     }
 
+    while (!gst_data_queue_is_empty (context->priv->queue)) {
+      if (gst_data_queue_pop (context->priv->queue, &item)) {
+        item->destroy (item);
+      }
+    }
+
+    /* Sleep time align with the framerate */
+    g_usleep (G_USEC_PER_SEC * context->configured_info.fps_d /
+      context->configured_info.fps_n);
+
     GST_TRACE_OBJECT (context, "render thread: handled");
   }
 

@@ -9,8 +9,9 @@
 # license agreement from NVIDIA Corporation is strictly prohibited.
 #
 ###############################################################################
+include ../Rules.mk
 
-CC:= gcc
+# CC:= gcc
 TARGET_NAME := libgstnvvideosinks.so
 
 SRCS := common/context.c \
@@ -43,27 +44,44 @@ LDFLAGS:= -shared
 
 CAN_PUBLIC_LINK:=1
 
-INC_PATHS =: \
-	common \
-	common/egl \
-	common/renderer \
-	common/x11 \
-	/usr/local/include/gstreamer-1.0 \
-	../../../3rdparty/gst/gst-nveglglessink/gst-libs/ \
-	../../../nvutils/nvbufsurface/ \
-	../
+INC_PATHS = \
+	-Icommon \
+	-Icommon/egl \
+	-Icommon/renderer \
+	-Icommon/x11 \
+	-I$(TARGET_ROOTFS)/usr/local/include/gstreamer-1.0 \
+	-I/usr/local/lib/aarch64-linux-gnu/gstreamer-1.0/include \
+	-I../../../3rdparty/gst/gst-nveglglessink/gst-libs/ \
+	-I../../../nvutils/nvbufsurface/ \
+	-I../ \
+	-I/usr/local/cuda-11.4/targets/sbsa-linux/include \
+	-I../gstegl_src/gst-egl/gst-libs/
 
 PKGS := glib-2.0 \
 	gstreamer-1.0 \
 	gstreamer-base-1.0 \
 	gstreamer-video-1.0
 
-CFLAGS += `pkg-config --cflags $(PKGS)`
+CFLAGS += `pkg-config --cflags $(PKGS)` $(INC_PATHS)
 
-LDFLAGS = -Wl,--no-undefined -L/usr/lib/aarch64-linux-gnu/tegra
+LDFLAGS = -Wl,--no-undefined -L$(TARGET_ROOTFS)/usr/lib/aarch64-linux-gnu/tegra  \
+	-L/usr/local/cuda-11.4/targets/sbsa-linux/lib \
+	-L/usr/local/cuda-10.2/targets/aarch64-linux/lib/ \
 
 LIBS = -lnvbufsurface -lGLESv2 -lEGL -lX11 -lm -lcuda -lcudart
 
 LIBS += `pkg-config --libs $(PKGS)`
 
-include ../../../deepstream/sdk/Rules.mk
+# include ../../../deepstream/sdk/Rules.mk
+
+all: $(TARGET_NAME)
+
+OBJS := $(SRCS:.c=.o)
+
+# %.o: %.c
+# 	@echo "Compiling: $<"
+# 	$(CC) $(CFLAGS) -c $<
+
+libgstnvvideosinks.so: $(OBJS)
+	@echo "Linking: $@"
+	$(CC) -shared -o $@ $^ $(CFLAGS) $(LDFLAGS) $(LIBS)
