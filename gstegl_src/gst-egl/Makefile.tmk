@@ -39,7 +39,6 @@ NV_COMPONENT_SOURCES                 := \
 NV_COMPONENT_OWN_INTERFACE_DIR       := .
 
 NV_COMPONENT_INCLUDES                += \
-	../.. \
 	$(_private_source_dir) \
 	$(_source_dir)/gst-libs \
 	$(NV_SOURCE)/nvutils/nvbufsurface/

@@ -10,7 +10,9 @@ libgstnveglglessink_la_CFLAGS = $(GST_PLUGINS_BAD_CFLAGS) \
                               $(GST_BASE_CFLAGS) \
                               $(GST_CFLAGS) \
                               $(EGL_CFLAGS) \
-                              $(EGLGLES_CFLAGS) -DUSE_EGL_TEGRA
+                              $(EGLGLES_CFLAGS) -DUSE_EGL_TEGRA \
+                              -I../../../../ \
+                              -I/usr/local/cuda-10.2/targets/aarch64-linux/include
 libgstnveglglessink_la_OBJCFLAGS = $(GST_PLUGINS_BAD_OBJCFLAGS) \
                                  $(GST_PLUGINS_BASE_OBJCFLAGS) \
                                  $(GST_BASE_OBJCFLAGS) \
