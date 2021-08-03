@@ -26,12 +26,14 @@ SRCS := common/context.c \
 
 IS_GST_PLUGIN:=1
 
-CFLAGS := -fPIC \
+CFLAGS := -g -O0 -fPIC \
     -DNV_VIDEO_SINKS_HAS_EGL \
     -DNV_VIDEO_SINKS_HAS_GL \
     -DNV_VIDEO_SINKS_HAS_NV3DSINK \
-    -DNV_VIDEO_SINKS_HAS_X11 \
-    -DIS_DESKTOP
+    -DNV_VIDEO_SINKS_HAS_X11
+
+# 	disable in jetson
+#   -DIS_DESKTOP
 
 NEEDS_CUDA:=1
 
@@ -66,7 +68,7 @@ CFLAGS += `pkg-config --cflags $(PKGS)` $(INC_PATHS)
 LDFLAGS = -Wl,--no-undefined -L$(TARGET_ROOTFS)/usr/lib/aarch64-linux-gnu/tegra  \
 	-L/usr/local/cuda-10.2/targets/aarch64-linux/lib/ \
 
-LIBS = -lnvbufsurface -lGLESv2 -lEGL -lX11 -lm -lcuda -lcudart_static -ldl -lrt
+LIBS = -lnvbufsurface -lGLESv2 -lEGL -lX11 -lm -lcuda -lcudart_static -ldl -lrt -lnvbuf_utils
 
 LIBS += `pkg-config --libs $(PKGS)`
 
