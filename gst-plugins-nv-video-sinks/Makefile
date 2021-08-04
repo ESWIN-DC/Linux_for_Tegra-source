@@ -26,7 +26,7 @@ SRCS := common/context.c \
 
 IS_GST_PLUGIN:=1
 
-CFLAGS := -g -O0 -fPIC \
+CFLAGS := -fPIC \
     -DNV_VIDEO_SINKS_HAS_EGL \
     -DNV_VIDEO_SINKS_HAS_GL \
     -DNV_VIDEO_SINKS_HAS_NV3DSINK \
@@ -50,8 +50,6 @@ INC_PATHS = \
 	-Icommon/egl \
 	-Icommon/renderer \
 	-Icommon/x11 \
-	-I$(TARGET_ROOTFS)/usr/local/include/gstreamer-1.0 \
-	-I/usr/local/lib/aarch64-linux-gnu/gstreamer-1.0/include \
 	-I../../../3rdparty/gst/gst-nveglglessink/gst-libs/ \
 	-I../../../nvutils/nvbufsurface/ \
 	-I../ \
@@ -65,7 +63,7 @@ PKGS := glib-2.0 \
 
 CFLAGS += `pkg-config --cflags $(PKGS)` $(INC_PATHS)
 
-LDFLAGS = -Wl,--no-undefined -L$(TARGET_ROOTFS)/usr/lib/aarch64-linux-gnu/tegra  \
+LDFLAGS = -Wl,--no-undefined -L/usr/lib/aarch64-linux-gnu/tegra  \
 	-L/usr/local/cuda-10.2/targets/aarch64-linux/lib/ \
 
 LIBS = -lnvbufsurface -lGLESv2 -lEGL -lX11 -lm -lcuda -lcudart_static -ldl -lrt -lnvbuf_utils
