@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2019, NVIDIA CORPORATION. All rights reserved.
+ * Copyright (c) 2013-2021, NVIDIA CORPORATION. All rights reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -48,7 +48,6 @@ static gint multitrack_instance = 1;
 
 static GThread *trd = NULL;
 static gboolean trd_exit = FALSE;
-static gboolean need_nvvidconv = FALSE;
 
 appCtx sapp, *app;
 gchar *urifile = NULL, *elemfile = NULL, *cxpr = NULL;
@@ -1523,20 +1522,9 @@ get_keys (GstCaps * caps, gchar * str, gchar * xstr)
   }
 
   if (!keys) {
-    gboolean elem_allocated = FALSE;
     gchar *elems = g_hash_table_lookup (app->htable, str);
-    /* nv3dsink currently do not support software memory and hence nvvidconv is used to support
-    image decode with nv3dsink */
-    if (need_nvvidconv == TRUE && !g_strcmp0 (elems, NVGST_DEFAULT_VIDEO_SINK)
-        && (app->input->attrs.flags & NVGST_PLAY_FLAG_NATIVE_VIDEO)) {
-      elems = g_strconcat ("nvvidconv ! ", elems, NULL);
-      elem_allocated = TRUE;
-    }
     if (elems) {
       keys = g_strsplit_set (elems, "!", -1);
-    }
-    if (elem_allocated) {
-      g_free (elems);
     }
   }
 
@@ -2329,10 +2317,6 @@ autoplug_select (GstElement * dbin, GstPad * pad, GstCaps * caps,
                            g_strcmp0(name, "image/png") &&
                            g_strcmp0(name, "video/x-h263"))
             app->svd = g_strconcat (NVGST_DEFAULT_VIDEO_DEC, NULL);
-          if (!g_strcmp0(name, "image/jpeg") ||
-              !g_strcmp0(name, "image/png") ||
-              !g_strcmp0(name, "video/x-h263"))
-            need_nvvidconv = TRUE;
           in->video_dec = get_keys (caps, NVGST_VIDEO_DEC, app->svd);
 
           if (in->video_dec) {

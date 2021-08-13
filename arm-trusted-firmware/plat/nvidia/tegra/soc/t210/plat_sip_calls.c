@@ -65,7 +65,6 @@ int plat_sip_handler(uint32_t smc_fid,
 		case PMC_SCRATCH56 ... PMC_SCRATCH57:
 		/* PMC secure-only registers are not accessible */
 		case PMC_DPD_ENABLE_0:
-		case PMC_FUSE_CONTROL_0:
 		case PMC_CRYPTO_OP_0:
 		case PMC_TSC_MULT_0:
 		case PMC_STICKY_BIT:

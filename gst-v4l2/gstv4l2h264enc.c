@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2014 SUMOMO Computer Association
  *     Author: ayaka <ayaka@soulik.info>
- * Copyright (c) 2018-2020, NVIDIA CORPORATION. All rights reserved.
+ * Copyright (c) 2018-2021, NVIDIA CORPORATION. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -613,6 +613,8 @@ gst_v4l2_videnc_profile_get_type (void)
         "Main"},
     {V4L2_MPEG_VIDEO_H264_PROFILE_HIGH, "GST_V4L2_H264_VIDENC_HIGH_PROFILE",
         "High"},
+    {V4L2_MPEG_VIDEO_H264_PROFILE_HIGH_444_PREDICTIVE, "GST_V4L2_H264_VIDENC_HIGH_444_PREDICTIVE",
+        "High444"},
     {0, NULL, NULL}
   };
 

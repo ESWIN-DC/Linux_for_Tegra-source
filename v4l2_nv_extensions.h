@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2020, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2016-2021, NVIDIA CORPORATION.  All rights reserved.
  *
  *  Redistribution and use in source and binary forms, with or without
  *  modification, are permitted provided that the following conditions
@@ -84,6 +84,16 @@
  * Defines the V4L2 pixel format for representing semi-planar 12-bit Y/CbCr 4:2:0 decoder data.
  */
 #define V4L2_PIX_FMT_P012M   v4l2_fourcc('P', 'M', '1', '2') /* Y/CbCr 4:2:0, 12 bits per channel */
+
+/**
+ * Defines the V4L2 pixel format for representing semi-planar 8-bit Y/CbCr 4:4:4 decoder data.
+ */
+#define V4L2_PIX_FMT_NV24M   v4l2_fourcc('N', 'M', '2', '4') /* Y/CbCr 4:4:4, 8 bits per channel */
+
+/**
+ * Defines the V4L2 pixel format for representing semi-planar 10-bit Y/CbCr 4:4:4 decoder data.
+ */
+#define V4L2_PIX_FMT_NV24_10LE   v4l2_fourcc('N', 'V', '1', '0') /* Y/CbCr 4:4:4, 10 bits per channel */
 
 
 /** @cond UNUSED */
@@ -1171,6 +1181,50 @@ struct v4l2_ctrl_vp8_frame_hdr {
  * and before requesting buffers on either plane.
  */
 #define V4L2_CID_MPEG_VIDEOENC_POC_TYPE (V4L2_CID_MPEG_BASE+563)
+
+/**
+ * Defines the Control ID to set Sample Aspect Ratio width for H265 VUI encoding.
+ *
+ * An integer value must be supplied with this control.
+ * The VUI Sample Aspect Ratio indicator for H265 follows the standard enum defined for
+ * v4l2_mpeg_video_h264_vui_sar_idc.
+ *
+ * @attention This control should be set after setting formats on both the planes
+ * and before requesting buffers on either plane.
+ */
+#define V4L2_CID_MPEG_VIDEOENC_H265_VUI_EXT_SAR_WIDTH (V4L2_CID_MPEG_BASE+564)
+
+/**
+ * Defines the Control ID to set Sample Aspect Ratio height for H265 VUI encoding.
+ *
+ * An integer value must be supplied with this control.
+ * The VUI Sample Aspect Ratio indicator for H265 follows the standard enum defined
+ * for v4l2_mpeg_video_h264_vui_sar_idc.
+ *
+ * @attention This control should be set after setting formats on both the planes
+ * and before requesting buffers on either plane.
+ */
+#define V4L2_CID_MPEG_VIDEOENC_H265_VUI_EXT_SAR_HEIGHT (V4L2_CID_MPEG_BASE+565)
+
+/**
+ * Defines the Control ID to force INTRA frame.
+ *
+ * This control can be used by encoder to force encoding an intra frame.
+ *
+ * @attention This control should be set after setting formats on both the planes
+ * and before requesting buffers on either plane.
+ */
+#define V4L2_CID_MPEG_VIDEOENC_FORCE_INTRA_FRAME (V4L2_CID_MPEG_BASE+566)
+
+/**
+ * Defines the Control ID to force IDR frame.
+ *
+ * This control can be used by encoder to force encoding an idr frame.
+ *
+ * @attention This control should be set after setting formats on both the planes
+ * and before requesting buffers on either plane.
+ */
+#define V4L2_CID_MPEG_VIDEOENC_FORCE_IDR_FRAME (V4L2_CID_MPEG_BASE+567)
 
 /** @} */
 

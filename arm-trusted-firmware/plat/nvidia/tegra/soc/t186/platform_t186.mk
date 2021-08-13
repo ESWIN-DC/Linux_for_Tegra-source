@@ -1,5 +1,6 @@
 #
 # Copyright (c) 2015-2018, ARM Limited and Contributors. All rights reserved.
+# Copyright (c) 2021, NVIDIA CORPORATION. All rights reserved.
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
@@ -26,8 +27,8 @@ $(eval $(call add_define,USE_GPC_DMA))
 RELOCATE_BL32_IMAGE			:= 1
 
 # platform settings
-TZDRAM_BASE				:= 0x30000000
-$(eval $(call add_define,TZDRAM_BASE))
+PLAT_BL31_BASE				:= 0x30000000
+$(eval $(call add_define,PLAT_BL31_BASE))
 
 PLATFORM_CLUSTER_COUNT			:= 2
 $(eval $(call add_define,PLATFORM_CLUSTER_COUNT))

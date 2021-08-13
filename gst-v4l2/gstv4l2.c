@@ -2,7 +2,7 @@
  *
  * Copyright (C) 2001-2002 Ronald Bultje <rbultje@ronald.bitfreak.net>
  *               2006 Edgard Lima <edgard.lima@gmail.com>
- * Copyright (c) 2018, NVIDIA CORPORATION. All rights reserved.
+ * Copyright (c) 2018-2021, NVIDIA CORPORATION. All rights reserved.
  *
  * gstv4l2.c: plugin for v4l2 elements
  *
@@ -298,9 +298,12 @@ plugin_init (GstPlugin * plugin)
 #ifndef USE_V4L2_TARGET_NV_X86
   FILE *fp;
   fp = fopen ("/dev/nvidia0", "r");
-  if (fp)
+  if (fp) {
     is_cuvid = TRUE;
-  else is_cuvid = FALSE;
+  }
+  else {
+    is_cuvid = FALSE;
+  }
   if (fp)
     fclose(fp);
 #endif

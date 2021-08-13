@@ -49,8 +49,6 @@ void CRYPTO_sysrand(uint8_t *out, size_t requested)
 #include <crypto/rand.h>
 #include <trusty_std.h>
 
-extern pid_t gettid(void);
-
 int rand_pool_init(void)
 {
     return 1;
@@ -73,7 +71,6 @@ int rand_pool_add_nonce_data(RAND_POOL *pool)
 {
     struct {
         uint64_t time;
-        pid_t tid;
     } rinfo;;
 
     /*
@@ -82,7 +79,6 @@ int rand_pool_add_nonce_data(RAND_POOL *pool)
      * different process instances.
      */
     (void)gettime(1, 1, &rinfo.time);
-    rinfo.tid = gettid();
 
     return rand_pool_add(pool, (unsigned char *)&rinfo, sizeof(rinfo), 0);
 }

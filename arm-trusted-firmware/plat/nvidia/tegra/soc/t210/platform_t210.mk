@@ -1,11 +1,12 @@
 #
 # Copyright (c) 2015-2018, ARM Limited and Contributors. All rights reserved.
+# Copyright (c) 2021, NVIDIA CORPORATION. All rights reserved.
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
 
-TZDRAM_BASE				:= 0xFF800000
-$(eval $(call add_define,TZDRAM_BASE))
+PLAT_BL31_BASE				:= 0xFF800000
+$(eval $(call add_define,PLAT_BL31_BASE))
 
 ERRATA_TEGRA_INVALIDATE_BTB_AT_BOOT	:= 1
 $(eval $(call add_define,ERRATA_TEGRA_INVALIDATE_BTB_AT_BOOT))

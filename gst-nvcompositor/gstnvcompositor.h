@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2020, NVIDIA CORPORATION. All rights reserved.
+ * Copyright (c) 2017-2021, NVIDIA CORPORATION. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -82,6 +82,21 @@ typedef enum
 } GstNvCompositorBackground;
 
 /**
+ * GstInterpolationMethods:
+ *
+ * Interpolation methods type enum.
+ */
+typedef enum
+{
+  GST_INTERPOLATION_NEAREST,
+  GST_INTERPOLATION_BILINEAR,
+  GST_INTERPOLATION_5_TAP,
+  GST_INTERPOLATION_10_TAP,
+  GST_INTERPOLATION_SMART,
+  GST_INTERPOLATION_NICEST,
+} GstInterpolationMethods;
+
+/**
  * Nv Compositor Buffer:
  */
 struct _GstNvCompositorBuffer
@@ -114,6 +129,7 @@ struct _GstNvCompositor
 
   GstNvCompBgcolor bg;
   GstNvCompositorBackground background;
+  NvBufferCompositeParams comp_params;
 
   gboolean nvcomppool;
   GstBufferPool *pool;

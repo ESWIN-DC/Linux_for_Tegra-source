@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2020, NVIDIA CORPORATION. All rights reserved.
+ * Copyright (c) 2017-2021, NVIDIA CORPORATION. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -72,6 +72,7 @@ struct _GstNvCompositorPad
   gint width;
   gint height;
   gdouble alpha;
+  gint interpolation_method;
 
   gint input_width;
   gint input_height;

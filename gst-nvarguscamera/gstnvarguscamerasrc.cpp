@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2020, NVIDIA CORPORATION. All rights reserved.
+ * Copyright (c) 2017-2021, NVIDIA CORPORATION. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -63,7 +63,7 @@
   "video/x-raw(memory:NVMM), " \
   "width = (int) [ 1, MAX ], " \
   "height = (int) [ 1, MAX ], " \
-  "format = (string) { NV12 }, " \
+  "format = (string) { NV12, P010_10LE }, " \
   "framerate = (fraction) [ 0, MAX ];"
 
 #define MIN_BUFFERS 6
@@ -80,8 +80,8 @@
 
 #define GST_NVARGUS_MEMORY_TYPE "nvarguscam"
 static const int DEFAULT_FPS        = 30;
-static const uint64_t TIMEOUT_FIVE_SECONDS  = 5000000000;
-static const uint64_t ACQUIRE_FRAME_TIMEOUT = 1000000000;
+static const uint64_t WAIT_FOR_EVENT_TIMEOUT  = 3000000000;
+static const uint64_t ACQUIRE_FRAME_TIMEOUT   = 5000000000;
 
 #ifdef __cplusplus
 extern "C"
@@ -91,6 +91,49 @@ extern "C"
 using namespace std;
 using namespace Argus;
 using namespace EGLStream;
+
+std::mutex g_mtx;
+class CameraProviderContainer
+{
+public:
+    CameraProviderContainer()
+    {
+      m_cameraProvider = CameraProvider::create();
+      if (!m_cameraProvider)
+        return;
+
+      m_iCameraProvider = interface_cast<Argus::ICameraProvider>(m_cameraProvider);
+      m_iCameraProvider->getCameraDevices(&m_cameraDevices);
+    }
+
+    ~CameraProviderContainer()
+    {
+      if (m_cameraProvider)
+        m_cameraProvider->destroy();
+    }
+
+    ICameraProvider* getICameraProvider();
+    std::vector<Argus::CameraDevice*> getCameraDevices();
+private:
+    CameraProvider *m_cameraProvider = NULL;
+    ICameraProvider *m_iCameraProvider = NULL;
+    std::vector<Argus::CameraDevice*> m_cameraDevices;
+};
+
+ICameraProvider* CameraProviderContainer::getICameraProvider()
+{
+  if (!m_cameraProvider)
+    return NULL;
+
+  return m_iCameraProvider;
+}
+
+vector<Argus::CameraDevice*> CameraProviderContainer::getCameraDevices()
+{
+  return m_cameraDevices;
+}
+
+shared_ptr<CameraProviderContainer> g_cameraProvider = make_shared<CameraProviderContainer>();
 
 namespace ArgusSamples
 {
@@ -120,7 +163,11 @@ bool ThreadArgus::initialize(GstNvArgusCameraSrc *src)
 
   // wait for the thread to start up
   while (m_threadState == THREAD_INACTIVE)
+  {
     usleep(100);
+    if (m_threadState == THREAD_FAILED)
+      return false;
+  }
 
   return true;
 }
@@ -151,6 +198,10 @@ bool ThreadArgus::waitRunning(useconds_t timeoutUs)
   while (m_threadState != THREAD_RUNNING)
   {
     usleep(sleepTimeUs);
+    if (m_threadState == THREAD_FAILED)
+    {
+      ORIGINATE_ERROR("Invalid thread state %d", m_threadState.get());
+    }
 #ifdef DEBUG
     // in debug mode wait indefinitely
 #else
@@ -280,7 +331,10 @@ bool StreamConsumer::threadExecute(GstNvArgusCameraSrc *src)
   // Wait until the producer has connected to the stream.
   CONSUMER_PRINT("Waiting until producer is connected...\n");
   if (iStream->waitUntilConnected() != STATUS_OK)
+  {
+    src->argus_in_error = TRUE;
     ORIGINATE_ERROR("Stream failed to connect.");
+  }
   CONSUMER_PRINT("Producer has connected; continuing.\n");
   IAutoControlSettings* l_iAutoControlSettings_ptr = (IAutoControlSettings *)src->iAutoControlSettings_ptr;
   ICaptureSession* l_iCaptureSession               = (ICaptureSession *)src->iCaptureSession_ptr;
@@ -299,13 +353,21 @@ bool StreamConsumer::threadExecute(GstNvArgusCameraSrc *src)
   src->frameInfo->fd = -1;
   while (true)
   {
-    Status frame_status;
+    Argus::Status frame_status;
     GError *error = NULL;
     Event* event = NULL;
     IEvent* iEvent = NULL;
     static GQuark domain = g_quark_from_static_string ("NvArgusCameraSrc");
 
-    iEventProvider_ptr->waitForEvents(src->queue.get(), TIMEOUT_FIVE_SECONDS);
+    g_mutex_lock(&src->queue_lock);
+    if (src->queue.get() == NULL)
+    {
+      g_mutex_unlock(&src->queue_lock);
+      break;
+    }
+
+    iEventProvider_ptr->waitForEvents(src->queue.get(), WAIT_FOR_EVENT_TIMEOUT);
+    g_mutex_unlock(&src->queue_lock);
 
     if (iEventQueue_ptr->getSize() == 0)
     {
@@ -319,18 +381,18 @@ bool StreamConsumer::threadExecute(GstNvArgusCameraSrc *src)
     iEvent = (IEvent*)interface_cast<const IEvent>(event);
     if (!iEvent)
     {
-      src->argus_in_error = true;
+      src->argus_in_error = TRUE;
       ORIGINATE_ERROR("Failed to get IEvent interface");
     }
 
     if (iEvent->getEventType() == EVENT_TYPE_ERROR)
     {
-      if (src->stop_requested == TRUE)
+      if (src->stop_requested == TRUE  || src->timeout_complete == TRUE)
         break;
 
       src->argus_in_error = TRUE;
       const IEventError* iEventError = interface_cast<const IEventError>(event);
-      Status argusStatus = iEventError->getStatus();
+      Argus::Status argusStatus = iEventError->getStatus();
       error = g_error_new (domain, argusStatus, getStatusString(argusStatus));
       GstMessage *message = gst_message_new_error (GST_OBJECT(src), error, "Argus Error Status");
       gst_element_post_message (GST_ELEMENT_CAST(src), message);
@@ -343,24 +405,21 @@ bool StreamConsumer::threadExecute(GstNvArgusCameraSrc *src)
     {
       UniqueObj<Frame> frame(iFrameConsumer->acquireFrame(ACQUIRE_FRAME_TIMEOUT, &frame_status));
 
-      if (src->stop_requested == TRUE)
+      if (src->stop_requested == TRUE || src->timeout_complete == TRUE)
       {
         break;
       }
 
       if (frame_status != STATUS_OK)
       {
-        if (!src->timeout_complete)
-        {
-          src->argus_in_error = true;
-          error = g_error_new (domain, frame_status, getStatusString(frame_status));
-          GstMessage *message = gst_message_new_error (GST_OBJECT(src), error, "Argus Error Status");
-          gst_element_post_message (GST_ELEMENT_CAST(src), message);
-          g_mutex_lock (&src->argus_buffers_queue_lock);
-          src->stop_requested = TRUE;
-          g_mutex_unlock (&src->argus_buffers_queue_lock);
-          break;
-        }
+        src->argus_in_error = TRUE;
+        error = g_error_new (domain, frame_status, getStatusString(frame_status));
+        GstMessage *message = gst_message_new_error (GST_OBJECT(src), error, "Argus Error Status");
+        gst_element_post_message (GST_ELEMENT_CAST(src), message);
+        g_mutex_lock (&src->argus_buffers_queue_lock);
+        src->stop_requested = TRUE;
+        g_mutex_unlock (&src->argus_buffers_queue_lock);
+        break;
       }
       if (!frame)
       {
@@ -569,7 +628,7 @@ bool StreamConsumer::threadExecute(GstNvArgusCameraSrc *src)
       if (src->frameInfo->fd < 0)
       {
         src->frameInfo->fd = iNativeBuffer->createNvBuffer(streamSize,
-                NvBufferColorFormat_YUV420,
+                src->cap_pix_fmt,
                 NvBufferLayout_BlockLinear);
         if (!src->silent)
           CONSUMER_PRINT("Acquired Frame. %d\n", src->frameInfo->fd);
@@ -579,10 +638,17 @@ bool StreamConsumer::threadExecute(GstNvArgusCameraSrc *src)
         ORIGINATE_ERROR("IImageNativeBuffer not supported by Image.");
       }
 
+      static const guint64 ground_clk = iFrame->getTime();;
+
       if (!src->silent)
-        CONSUMER_PRINT("Acquired Frame: %llu, time %llu\n",
+      {
+        guint64 frame_timestamp = iFrame->getTime() - ground_clk;
+        guint64 millisec_timestamp = ((frame_timestamp % (1000000000)))/1000000;
+        CONSUMER_PRINT("Acquired Frame: %llu, time sec %llu msec %llu\n",
                    static_cast<unsigned long long>(iFrame->getNumber()),
-                   static_cast<unsigned long long>(iFrame->getTime()));
+                   static_cast<unsigned long long>(frame_timestamp / (1000000000)),
+                   static_cast<unsigned long long>(millisec_timestamp));
+      }
 
       src->frameInfo->frameNum = iFrame->getNumber();
       src->frameInfo->frameTime = iFrame->getTime();
@@ -606,11 +672,16 @@ bool StreamConsumer::threadExecute(GstNvArgusCameraSrc *src)
 
   if (src->frameInfo->fd)
     NvBufferDestroy(src->frameInfo->fd);
+
   g_slice_free (NvArgusFrameInfo, src->frameInfo);
 
   if (!src->argus_in_error)
   {
-      CONSUMER_PRINT("Done Success\n");
+    CONSUMER_PRINT("Done Success\n");
+  }
+  else
+  {
+    CONSUMER_PRINT("ERROR OCCURRED\n");
   }
   PROPAGATE_ERROR(requestShutdown());
   return true;
@@ -631,16 +702,25 @@ static bool execute(int32_t cameraIndex,
   uint32_t index = 0;
   gint found = 0;
   gint best_match = -1;
+  Range<float> sensorModeAnalogGainRange;
+  Range<float> ispDigitalGainRange;
+  Range<uint64_t> limitExposureTimeRange;
+  vector<SensorMode*> modes;
+  vector<EventType> eventTypes;
+  ICameraProperties *camProps= NULL;
+  IRequest *iRequest = NULL;
+  ISensorMode *iSensorMode_ptr = NULL;
+  IAutoControlSettings* iAutoControlSettings = NULL;
+  ISourceSettings *requestSourceSettings = NULL;
 
   // Create the CameraProvider object
-  static UniqueObj<CameraProvider> cameraProvider(CameraProvider::create());
-  ICameraProvider *iCameraProvider = interface_cast<ICameraProvider>(cameraProvider);
+  shared_ptr<CameraProviderContainer> cameraProvider = g_cameraProvider;
+  ICameraProvider *iCameraProvider = cameraProvider->getICameraProvider();
   if (!iCameraProvider)
     ORIGINATE_ERROR("Failed to create CameraProvider");
 
   // Get the camera devices.
-  std::vector<CameraDevice*> cameraDevices;
-  iCameraProvider->getCameraDevices(&cameraDevices);
+  std::vector<CameraDevice*> cameraDevices = cameraProvider->getCameraDevices();
   if (cameraDevices.size() == 0)
     ORIGINATE_ERROR("No cameras available");
 
@@ -649,20 +729,18 @@ static bool execute(int32_t cameraIndex,
                                       cameraIndex, static_cast<int32_t>(cameraDevices.size())-1);
 
   // Create the capture session using the specified device.
-  UniqueObj<CaptureSession> captureSession(
-      iCameraProvider->createCaptureSession(cameraDevices[cameraIndex]));
+  UniqueObj<CaptureSession> captureSession =
+      UniqueObj<CaptureSession>(iCameraProvider->createCaptureSession(cameraDevices[cameraIndex]));
   ICaptureSession *iCaptureSession = interface_cast<ICaptureSession>(captureSession);
   if (!iCaptureSession)
     ORIGINATE_ERROR("Failed to create CaptureSession");
-
   src->iCaptureSession_ptr = iCaptureSession;
+
   IEventProvider *iEventProvider = interface_cast<IEventProvider>(captureSession);
   if (!iEventProvider)
     ORIGINATE_ERROR("Failed to create Event Provider");
-
   src->iEventProvider_ptr = iEventProvider;
 
-  vector<EventType> eventTypes;
   // Argus drops EVENT_TYPE_ERROR if all 3 events are not set. Setting all for now
   eventTypes.push_back(EVENT_TYPE_CAPTURE_COMPLETE);
   eventTypes.push_back(EVENT_TYPE_ERROR);
@@ -672,93 +750,107 @@ static bool execute(int32_t cameraIndex,
   IEventQueue *iQueue = interface_cast<IEventQueue>(src->queue);
   if (!iQueue)
     ORIGINATE_ERROR("EventQ interface is NULL");
-
   src->iEventQueue_ptr = iQueue;
 
-  GST_ARGUS_PRINT("Creating output stream\n");
-  UniqueObj<OutputStreamSettings> streamSettings(iCaptureSession->createOutputStreamSettings(STREAM_TYPE_EGL));
-  IEGLOutputStreamSettings *iStreamSettings = interface_cast<IEGLOutputStreamSettings>(streamSettings);
-  if (iStreamSettings)
   {
-    iStreamSettings->setPixelFormat(PIXEL_FMT_YCbCr_420_888);
-    iStreamSettings->setResolution(streamSize);
-  }
-  UniqueObj<OutputStream> outputStream(iCaptureSession->createOutputStream(streamSettings.get()));
-  IEGLOutputStream *iStream = interface_cast<IEGLOutputStream>(outputStream);
-  if (!iStream)
-    ORIGINATE_ERROR("Failed to create OutputStream");
+    std::unique_lock<std::mutex> g_lck(g_mtx);
 
-  StreamConsumer consumerThread(outputStream.get());
+    GST_ARGUS_PRINT("Creating output stream\n");
+    src->streamSettings = UniqueObj<OutputStreamSettings>(
+      iCaptureSession->createOutputStreamSettings(STREAM_TYPE_EGL));
+    IEGLOutputStreamSettings *iStreamSettings = interface_cast<IEGLOutputStreamSettings>(src->streamSettings);
+    if (iStreamSettings)
+    {
+      if (src->cap_pix_fmt == NvBufferColorFormat_NV12_10LE)
+        iStreamSettings->setPixelFormat(PIXEL_FMT_P016);
+      else
+        iStreamSettings->setPixelFormat(PIXEL_FMT_YCbCr_420_888);
+      iStreamSettings->setResolution(streamSize);
+    }
+    if (src->streamSettings.get() == NULL)
+      ORIGINATE_ERROR("Failed to get streamSettings");
+
+    src->outputStream = UniqueObj<OutputStream>(iCaptureSession->createOutputStream(src->streamSettings.get()));
+    IEGLOutputStream *iStream = interface_cast<IEGLOutputStream>(src->outputStream);
+    if (!iStream)
+      ORIGINATE_ERROR("Failed to create OutputStream");
+  }
+
+  StreamConsumer consumerThread(src->outputStream.get());
 
   PROPAGATE_ERROR(consumerThread.initialize(src));
-
   // Wait until the consumer is connected to the stream.
   PROPAGATE_ERROR(consumerThread.waitRunning());
 
-  // Create capture request and enable output stream.
-  UniqueObj<Request> request(iCaptureSession->createRequest());
-  IRequest *iRequest = interface_cast<IRequest>(request);
-  src->iRequest_ptr = iRequest;
-  if (!iRequest)
-    ORIGINATE_ERROR("Failed to create Request");
-  iRequest->enableOutputStream(outputStream.get());
-
-  IAutoControlSettings* iAutoControlSettings =
-      interface_cast<IAutoControlSettings>(iRequest->getAutoControlSettings());
-  src->iAutoControlSettings_ptr = iAutoControlSettings;
-  std::vector<SensorMode*> modes;
-  ICameraProperties *camProps = interface_cast<ICameraProperties>(cameraDevices[cameraIndex]);
-  if (!camProps)
-    ORIGINATE_ERROR("Failed to create camera properties");
-  camProps->getAllSensorModes(&modes);
-
-  ISourceSettings *requestSourceSettings =
-                                  interface_cast<ISourceSettings>(iRequest->getSourceSettings());
-  if (!requestSourceSettings)
-    ORIGINATE_ERROR("Failed to get request source settings");
-  src->iRequestSourceSettings_ptr = requestSourceSettings;
-
-  if (cameraMode != NVARGUSCAM_DEFAULT_SENSOR_MODE_STATE && static_cast<uint32_t>(cameraMode) >= modes.size())
-    ORIGINATE_ERROR("Invalid sensor mode %d selected %d present", cameraMode,
-                                                          static_cast<int32_t>(modes.size()));
-
-  src->total_sensor_modes = modes.size();
-
- GST_ARGUS_PRINT("Available Sensor modes :\n");
-  frameRate = src->fps_n/ src->fps_d;
-  duration = 1e9 * src->fps_d/ src->fps_n;
-  ISensorMode *iSensorMode[modes.size()];
-  Range<float> sensorModeAnalogGainRange;
-  Range<float> ispDigitalGainRange;
-  Range<uint64_t> limitExposureTimeRange;
-  for (index = 0; index < modes.size(); index++)
   {
+    std::unique_lock<std::mutex> g_lck(g_mtx);
 
-    iSensorMode[index] = interface_cast<ISensorMode>(modes[index]);
-    sensorModeAnalogGainRange = iSensorMode[index]->getAnalogGainRange();
-    limitExposureTimeRange = iSensorMode[index]->getExposureTimeRange();
-    GST_ARGUS_PRINT("%d x %d FR = %f fps Duration = %lu ; Analog Gain range min %f, max %f; Exposure Range min %ju, max %ju;\n\n",
-                    iSensorMode[index]->getResolution().width(), iSensorMode[index]->getResolution().height(),
-                    (1e9/(iSensorMode[index]->getFrameDurationRange().min())),
-                    iSensorMode[index]->getFrameDurationRange().min(),
-                    sensorModeAnalogGainRange.min(), sensorModeAnalogGainRange.max(),
-                    limitExposureTimeRange.min(), limitExposureTimeRange.max());
+    // Create capture request and enable output stream.
+    src->request = UniqueObj<Request>(iCaptureSession->createRequest());
+    iRequest = interface_cast<IRequest>(src->request);
+    src->iRequest_ptr = iRequest;
+    if (!iRequest)
+      ORIGINATE_ERROR("Failed to create Request");
+    iRequest->enableOutputStream(src->outputStream.get());
 
-    if (cameraMode ==  NVARGUSCAM_DEFAULT_SENSOR_MODE_STATE)
+    iAutoControlSettings =
+        interface_cast<IAutoControlSettings>(iRequest->getAutoControlSettings());
+    if (!iAutoControlSettings)
+      ORIGINATE_ERROR("Failed to get AutoControlSettings");
+    src->iAutoControlSettings_ptr = iAutoControlSettings;
+
+    camProps = interface_cast<ICameraProperties>(cameraDevices[cameraIndex]);
+    if (!camProps)
+      ORIGINATE_ERROR("Failed to create camera properties");
+    camProps->getAllSensorModes(&modes);
+
+    requestSourceSettings =
+                        interface_cast<ISourceSettings>(iRequest->getSourceSettings());
+    if (!requestSourceSettings)
+      ORIGINATE_ERROR("Failed to get request source settings");
+    src->iRequestSourceSettings_ptr = requestSourceSettings;
+
+    if (cameraMode != NVARGUSCAM_DEFAULT_SENSOR_MODE_STATE && static_cast<uint32_t>(cameraMode) >= modes.size())
+      ORIGINATE_ERROR("Invalid sensor mode %d selected %d present", cameraMode,
+                                                            static_cast<int32_t>(modes.size()));
+
+    src->total_sensor_modes = modes.size();
+
+    GST_ARGUS_PRINT("Available Sensor modes :\n");
+    frameRate = src->fps_n/ src->fps_d;
+    duration = 1e9 * src->fps_d/ src->fps_n;
+    ISensorMode *iSensorMode[modes.size()];
+    for (index = 0; index < modes.size(); index++)
     {
-      if (streamSize.width() <= iSensorMode[index]->getResolution().width() &&
-          streamSize.height() <= iSensorMode[index]->getResolution().height() &&
-          duration >= (iSensorMode[index]->getFrameDurationRange().min()))
+      iSensorMode[index] = interface_cast<ISensorMode>(modes[index]);
+      if (!iSensorMode[index] || src->argus_in_error)
+        ORIGINATE_ERROR("NULL SensorMode interface detected");
+
+      sensorModeAnalogGainRange = iSensorMode[index]->getAnalogGainRange();
+      limitExposureTimeRange = iSensorMode[index]->getExposureTimeRange();
+      GST_ARGUS_PRINT("%d x %d FR = %f fps Duration = %lu ; Analog Gain range min %f, max %f; Exposure Range min %ju, max %ju;\n\n",
+                      iSensorMode[index]->getResolution().width(), iSensorMode[index]->getResolution().height(),
+                      (1e9/(iSensorMode[index]->getFrameDurationRange().min())),
+                      iSensorMode[index]->getFrameDurationRange().min(),
+                      sensorModeAnalogGainRange.min(), sensorModeAnalogGainRange.max(),
+                      limitExposureTimeRange.min(), limitExposureTimeRange.max());
+
+      if (cameraMode ==  NVARGUSCAM_DEFAULT_SENSOR_MODE_STATE)
       {
-        if (best_match == -1 || ((streamSize.width() == iSensorMode[index]->getResolution().width()) &&
-              (streamSize.height() == iSensorMode[index]->getResolution().height()) &&
-            (iSensorMode[best_match]->getFrameDurationRange().min() >= iSensorMode[index]->getFrameDurationRange().min()))){
-             best_match = index;
+        if (streamSize.width() <= iSensorMode[index]->getResolution().width() &&
+            streamSize.height() <= iSensorMode[index]->getResolution().height() &&
+            duration >= (iSensorMode[index]->getFrameDurationRange().min()))
+        {
+          if (best_match == -1 || ((streamSize.width() == iSensorMode[index]->getResolution().width()) &&
+                (streamSize.height() == iSensorMode[index]->getResolution().height()) &&
+              (iSensorMode[best_match]->getFrameDurationRange().min() >= iSensorMode[index]->getFrameDurationRange().min()))){
+               best_match = index;
+          }
+          else if ((iSensorMode[index]->getResolution().width()) <= iSensorMode[best_match]->getResolution().width()) {
+          best_match = index;
+          }
+          found = 1;
         }
-        else if ((iSensorMode[index]->getResolution().width()) <= iSensorMode[best_match]->getResolution().width()) {
-        best_match = index;
-        }
-        found = 1;
       }
     }
   }
@@ -767,9 +859,9 @@ static bool execute(int32_t cameraIndex,
   {
     if (0 == found)
     {
-        /* As request resolution is not supported, switch to default
-       * sensormode Index.
-       */
+      /* As request resolution is not supported, switch to default
+        * sensormode Index.
+        */
       GST_INFO_OBJECT (src, " Requested resolution W = %d H = %d not supported by Sensor.\n",
           streamSize.width(), streamSize.height());
       cameraMode = 0;
@@ -779,20 +871,39 @@ static bool execute(int32_t cameraIndex,
     }
   }
   /* Update Sensor Mode*/
+  iSensorMode_ptr = Argus::interface_cast<Argus::ISensorMode>(modes[cameraMode]);
   src->sensor_mode = cameraMode;
 
-  if (frameRate > round((1e9/(iSensorMode[cameraMode]->getFrameDurationRange().min()))))
+  if (frameRate > round((1e9/(iSensorMode_ptr->getFrameDurationRange().min()))))
   {
     src->argus_in_error = TRUE;
     GST_ARGUS_ERROR("Frame Rate specified is greater than supported\n");
   }
 
-  IDenoiseSettings *denoiseSettings = interface_cast<IDenoiseSettings>(request);
+  requestSourceSettings->setSensorMode(modes[cameraMode]);
+  if (!src->fps_n)
+  {
+    frameRate = DEFAULT_FPS;
+  }
+
+  requestSourceSettings->setFrameDurationRange(Range<uint64_t>(1e9/frameRate));
+
+  GST_ARGUS_PRINT("Running with following settings:\n"
+             "   Camera index = %d \n"
+             "   Camera mode  = %d \n"
+             "   Output Stream W = %d H = %d \n"
+             "   seconds to Run    = %d \n"
+             "   Frame Rate = %f \n",
+             cameraIndex, cameraMode, iSensorMode_ptr->getResolution().width(),
+             iSensorMode_ptr->getResolution().height(), secToRun,
+             (1e9/(iSensorMode_ptr->getFrameDurationRange().min())));
+
+  IDenoiseSettings *denoiseSettings = interface_cast<IDenoiseSettings>(src->request);
   if (!denoiseSettings)
     ORIGINATE_ERROR("Failed to get DenoiseSettings interface");
   src->iDenoiseSettings_ptr = denoiseSettings;
 
-  IEdgeEnhanceSettings *eeSettings = interface_cast<IEdgeEnhanceSettings>(request);
+  IEdgeEnhanceSettings *eeSettings = interface_cast<IEdgeEnhanceSettings>(src->request);
   if (!eeSettings)
     ORIGINATE_ERROR("Failed to get EdgeEnhancementSettings interface");
   src->iEeSettings_ptr = eeSettings;
@@ -901,16 +1012,6 @@ static bool execute(int32_t cameraIndex,
     src->aeLockPropSet = FALSE;
   }
 
-  GST_ARGUS_PRINT("Running with following settings:\n"
-             "   Camera index = %d \n"
-             "   Camera mode  = %d \n"
-             "   Output Stream W = %d H = %d \n"
-             "   seconds to Run    = %d \n"
-             "   Frame Rate = %f \n",
-             cameraIndex, cameraMode, iSensorMode[cameraMode]->getResolution().width(),
-             iSensorMode[cameraMode]->getResolution().height(), secToRun,
-             (1e9/(iSensorMode[cameraMode]->getFrameDurationRange().min())));
-
  /* Setting white balance property */
     if (src->wbPropSet)
     {
@@ -985,18 +1086,10 @@ static bool execute(int32_t cameraIndex,
     src->ispDigitalGainRangePropSet = FALSE;
   }
 
-  requestSourceSettings->setSensorMode(modes[cameraMode]);
-  if (!src->fps_n)
-  {
-    frameRate = DEFAULT_FPS;
-  }
-
-  requestSourceSettings->setFrameDurationRange(Range<uint64_t>(1e9/frameRate));
-
   GST_ARGUS_PRINT("Setup Complete, Starting captures for %d seconds\n", secToRun);
 
   GST_ARGUS_PRINT("Starting repeat capture requests.\n");
-  Request* captureRequest = request.get();
+  Request* captureRequest = src->request.get();
   src->request_ptr = captureRequest;
   iCaptureSession->capture(captureRequest);
   if (iCaptureSession->capture(captureRequest) == 0)
@@ -1010,7 +1103,8 @@ static bool execute(int32_t cameraIndex,
   }
   else if (secToRun != 0)
   {
-    sleep (secToRun);
+    unique_lock<mutex> lk(src->mtx);
+    src->cv.wait_for(lk, chrono::seconds(secToRun), [src] {return src->stop_requested == TRUE; });
     src->timeout_complete = TRUE;
     iCaptureSession->cancelRequests();
   }
@@ -1027,13 +1121,22 @@ static bool execute(int32_t cameraIndex,
   GST_ARGUS_PRINT("Cleaning up\n");
 
   iCaptureSession->stopRepeat();
-
   iCaptureSession->waitForIdle();
+
+  if (src->queue.get() !=  NULL)
+  {
+    g_mutex_lock(&src->queue_lock);
+    src->queue.reset();
+    g_mutex_unlock(&src->queue_lock);
+  }
 
   // Destroy the output stream. This destroys the EGLStream which causes
   // the GL consumer acquire to fail and the consumer thread to end.
-  outputStream.reset();
-
+  if (src->streamSettings)
+    src->streamSettings.reset();
+  if (src->request)
+    src->request.reset();
+  src->outputStream.reset();
 
   // Argus execution completed, signal the buffer consumed cond.
   if (!src->is_argus_buffer_consumed)
@@ -1043,6 +1146,7 @@ static bool execute(int32_t cameraIndex,
     src->is_argus_buffer_consumed = TRUE;
     g_mutex_unlock (&src->argus_buffer_consumed_lock);
   }
+
   // Wait for the consumer thread to complete.
   PROPAGATE_ERROR(consumerThread.shutdown());
 
@@ -1197,7 +1301,7 @@ gst_nv_memory_allocator_alloc (GstAllocator * allocator,
     input_params.width = self->width;
     input_params.height = self->height;
     input_params.layout = NvBufferLayout_BlockLinear;
-    input_params.colorFormat = NvBufferColorFormat_NV12;
+    input_params.colorFormat = self->cap_pix_fmt;
     input_params.payloadType = NvBufferPayload_SurfArray;
     input_params.nvbuf_tag = NvBufferTag_CAMERA;
 
@@ -1315,6 +1419,15 @@ static gboolean gst_nv_argus_camera_set_caps (GstBaseSrc *base, GstCaps *caps)
     GST_ERROR_OBJECT (src, "caps invalid");
     return FALSE;
   }
+  switch (GST_VIDEO_FORMAT_INFO_FORMAT (info.finfo)) {
+    case GST_VIDEO_FORMAT_P010_10LE:
+      src->cap_pix_fmt = NvBufferColorFormat_NV12_10LE;
+      break;
+    case GST_VIDEO_FORMAT_NV12:
+    default:
+      src->cap_pix_fmt = NvBufferColorFormat_NV12;
+      break;
+  }
 
   src->width  = info.width;
   src->height = info.height;
@@ -1410,10 +1523,16 @@ static gboolean gst_nv_argus_camera_stop (GstBaseSrc * src_base)
   GstNvArgusCameraSrc *src = (GstNvArgusCameraSrc *) src_base;
   GstBuffer *buf;
   src->stop_requested = TRUE;
+  src->cv.notify_one();
 
   if(!src->timeout)
   {
+    g_mutex_lock (&src->eos_lock);
+    g_cond_signal (&src->eos_cond);
+    g_mutex_unlock (&src->eos_lock);
+
     ICaptureSession* l_iCaptureSession = (ICaptureSession *)src->iCaptureSession_ptr;
+
     if (l_iCaptureSession)
     {
       l_iCaptureSession->cancelRequests();
@@ -1421,16 +1540,9 @@ static gboolean gst_nv_argus_camera_stop (GstBaseSrc * src_base)
       l_iCaptureSession->waitForIdle();
     }
   }
-  src->queue.reset();
-  g_mutex_lock (&src->eos_lock);
-  g_cond_signal (&src->eos_cond);
-  g_mutex_unlock (&src->eos_lock);
+
   g_thread_join(src->argus_thread);
-  g_thread_join(src->consumer_thread);
-  while (!g_queue_is_empty (src->nvmm_buffers)) {
-    buf = (GstBuffer *) g_queue_pop_head (src->nvmm_buffers);
-    gst_buffer_unref (buf);
-  }
+
   if (src->pool) {
     if (gst_buffer_pool_is_active (src->pool))
       gst_buffer_pool_set_active (src->pool, false);
@@ -1438,6 +1550,13 @@ static gboolean gst_nv_argus_camera_stop (GstBaseSrc * src_base)
     gst_object_unref (src->pool);
     src->pool = NULL;
   }
+  g_thread_join(src->consumer_thread);
+
+    while (!g_queue_is_empty (src->nvmm_buffers)) {
+    buf = (GstBuffer *) g_queue_pop_head (src->nvmm_buffers);
+    gst_buffer_unref (buf);
+  }
+
   g_queue_free(src->argus_buffers);
   g_queue_free(src->nvmm_buffers);
   return TRUE;
@@ -1460,13 +1579,26 @@ static gpointer argus_thread (gpointer src_base)
     src->iEventProvider_ptr           = NULL;
     src->iEventQueue_ptr              = NULL;
     src->iRequest_ptr                 = NULL;
-    src->iCaptureSession_ptr          = NULL;
     src->iAutoControlSettings_ptr     = NULL;
     src->request_ptr                  = NULL;
     src->outRequest_ptr               = NULL;
     src->iDenoiseSettings_ptr         = NULL;
     src->iEeSettings_ptr              = NULL;
     src->iRequestSourceSettings_ptr   = NULL;
+  }
+
+  if (src->outputStream)
+    src->outputStream.reset();
+  if (src->streamSettings)
+    src->streamSettings.reset();
+  if (src->request)
+    src->request.reset();
+
+  if (src->queue.get() != NULL)
+  {
+    g_mutex_lock(&src->queue_lock);
+    src->queue.reset();
+    g_mutex_unlock(&src->queue_lock);
   }
 
   src->stop_requested = TRUE;
@@ -1487,10 +1619,10 @@ static gpointer
 consumer_thread (gpointer src_base)
 {
   gint retn = 0;
-  GstBuffer *buffer;
-  GstMemory *mem;
-  NvArgusFrameInfo *consumerFrameInfo;
-  GstFlowReturn ret;
+  GstBuffer *buffer = NULL;
+  GstMemory *mem = NULL;
+  NvArgusFrameInfo *consumerFrameInfo = NULL;
+  GstFlowReturn ret = GST_FLOW_OK;
   GstNVArgusMemory *nv_mem = NULL;
   static GQuark gst_buffer_metadata_quark = 0;
   gst_buffer_metadata_quark = g_quark_from_static_string ("GstBufferMetaData");
@@ -1500,12 +1632,12 @@ consumer_thread (gpointer src_base)
   while (FALSE == src->stop_requested)
   {
     g_mutex_lock (&src->argus_buffers_queue_lock);
-    if (src->stop_requested)
+    if (src->stop_requested || src->timeout_complete)
     {
       g_mutex_unlock (&src->argus_buffers_queue_lock);
       goto done;
     }
-    while (g_queue_is_empty (src->argus_buffers) && src->argus_in_error == false)
+    while (g_queue_is_empty (src->argus_buffers) && src->argus_in_error == FALSE)
     {
       gint64 until;
       gboolean ret_val = false;
@@ -1515,7 +1647,7 @@ consumer_thread (gpointer src_base)
         break;
       else
       {
-        if (src->stop_requested)
+        if (src->stop_requested || src->timeout_complete)
         {
           g_mutex_unlock(&src->argus_buffers_queue_lock);
           goto done;
@@ -1530,9 +1662,10 @@ consumer_thread (gpointer src_base)
       goto done;
     }
     ret = gst_buffer_pool_acquire_buffer (src->pool, &buffer, NULL);
+
     if (ret != GST_FLOW_OK)
     {
-      if (!src->stop_requested)
+      if (!src->stop_requested || !src->timeout_complete)
       {
         GST_ERROR_OBJECT(src, "Error in pool acquire buffer");
       }
@@ -1540,6 +1673,8 @@ consumer_thread (gpointer src_base)
     }
 
     if (src->bufApi == FALSE) {
+      GstMiniObject *miniobj = NULL;
+
       mem = gst_buffer_peek_memory (buffer, 0);
       if (!mem) {
         GST_ERROR_OBJECT(src, "no memory block");
@@ -1548,8 +1683,20 @@ consumer_thread (gpointer src_base)
       nv_mem = (GstNVArgusMemory *) mem;
       nv_mem->auxData.frame_num = consumerFrameInfo->frameNum;
       nv_mem->auxData.timestamp = consumerFrameInfo->frameTime;
-      gst_mini_object_set_qdata (GST_MINI_OBJECT_CAST (buffer),
-           gst_buffer_metadata_quark, &((GstNVArgusMemory *)mem)->auxData, NULL);
+
+      miniobj = GST_MINI_OBJECT_CAST (buffer);
+      if (gst_mini_object_is_writable(miniobj))
+        gst_mini_object_set_qdata (miniobj,
+             gst_buffer_metadata_quark, &((GstNVArgusMemory *)mem)->auxData, NULL);
+
+      if (consumerFrameInfo->fd == 0)
+      {
+        g_mutex_lock (&src->argus_buffer_consumed_lock);
+        g_cond_signal (&src->argus_buffer_consumed_cond);
+        src->is_argus_buffer_consumed = TRUE;
+        g_mutex_unlock (&src->argus_buffer_consumed_lock);
+        goto done;
+      }
 
       retn = NvBufferTransform (consumerFrameInfo->fd, nv_mem->nvcam_buf->dmabuf_fd, &src->transform_params);
       g_mutex_lock (&src->argus_buffer_consumed_lock);
@@ -1594,8 +1741,13 @@ consumer_thread (gpointer src_base)
   }
 done:
   GST_DEBUG_OBJECT (src, "%s: stop_requested=%d\n", __func__, src->stop_requested);
-  gst_mini_object_set_qdata (GST_MINI_OBJECT_CAST (buffer),
-    gst_buffer_metadata_quark, NULL, NULL);
+  if (buffer)
+  {
+    GstMiniObject *mobj = NULL;
+    mobj = GST_MINI_OBJECT_CAST (buffer);
+    if (gst_mini_object_is_writable(mobj))
+      gst_mini_object_set_qdata (mobj, gst_buffer_metadata_quark, NULL, NULL);
+  }
   return NULL;
 }
 
@@ -1607,13 +1759,13 @@ gst_nv_argus_camera_create (GstBaseSrc * src_base,
   GstFlowReturn ret = GST_FLOW_OK;
   GstBuffer *gst_buf = NULL;
 
-  if (self->stop_requested || self->unlock_requested)
+  if (self->stop_requested || self->unlock_requested || self->timeout_complete)
     return GST_FLOW_EOS;
 
   g_mutex_lock (&self->nvmm_buffers_queue_lock);
 
   while (!self->stop_requested && !self->unlock_requested && g_queue_is_empty (self->nvmm_buffers)
-    && self->argus_in_error == false)
+    && self->argus_in_error == FALSE && !self->timeout_complete)
   {
     gint64 until;
     gboolean ret_val = false;
@@ -1623,7 +1775,8 @@ gst_nv_argus_camera_create (GstBaseSrc * src_base,
       break;
   }
 
-  if (self->stop_requested || self->unlock_requested)
+
+  if (self->stop_requested || self->unlock_requested || self->timeout_complete)
   {
     g_mutex_unlock (&self->nvmm_buffers_queue_lock);
     return GST_FLOW_EOS;
@@ -1908,6 +2061,7 @@ gst_nv_argus_camera_src_init (GstNvArgusCameraSrc * src)
   src->height = 1080;
   src->fps_n = 30;
   src->fps_d = 1;
+  src->cap_pix_fmt = NvBufferColorFormat_NV12;
   src->stop_requested = FALSE;
   src->unlock_requested = FALSE;
   src->silent = TRUE;
@@ -1942,6 +2096,8 @@ gst_nv_argus_camera_src_init (GstNvArgusCameraSrc * src)
   g_mutex_init (&src->eos_lock);
   g_cond_init (&src->eos_cond);
 
+  g_mutex_init(&src->queue_lock);
+
   gst_base_src_set_live (GST_BASE_SRC (src), TRUE);
   gst_base_src_set_format (GST_BASE_SRC (src), GST_FORMAT_TIME);
   gst_base_src_set_do_timestamp (GST_BASE_SRC (src), TRUE);
@@ -1960,6 +2116,7 @@ static void gst_nv_argus_camera_src_finalize (GObject *object)
   g_cond_clear (&src->argus_buffer_consumed_cond);
   g_mutex_clear (&src->eos_lock);
   g_cond_clear (&src->eos_cond);
+  g_mutex_clear(&src->queue_lock);
   if(src->exposureTimeString) {
     g_free (src->exposureTimeString);
     src->exposureTimeString = NULL;

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Collabora Ltd.
+ * Copyright (C) 2014-2021 Collabora Ltd.
  *     Author: Nicolas Dufresne <nicolas.dufresne@collabora.com>
  * Copyright (c) 2018-2019, NVIDIA CORPORATION. All rights reserved.
  *
@@ -1989,13 +1989,13 @@ gst_v4l2_video_dec_class_init (GstV4l2VideoDecClass * klass)
             "Enable max performance", "Set to enable max performance",
             DEFAULT_MAX_PERFORMANCE, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
-  } else if (is_cuvid == TRUE) {
     g_object_class_install_property (gobject_class, PROP_NVBUF_API_VERSION,
         g_param_spec_boolean ("bufapi-version",
             "Use new buf API",
             "Set to use new buf API",
             default_nvbuf_api_version_new, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
+  } else if (is_cuvid == TRUE) {
     g_object_class_install_property (gobject_class, PROP_CUDADEC_MEM_TYPE,
         g_param_spec_enum ("cudadec-memtype",
             "Memory type for cuda decoder buffers",

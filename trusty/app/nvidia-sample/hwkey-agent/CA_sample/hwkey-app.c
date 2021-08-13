@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020, NVIDIA Corporation. All Rights Reserved.
+ * Copyright (c) 2020-2021, NVIDIA Corporation. All Rights Reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -27,6 +27,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/param.h>
 #include <sys/time.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -52,9 +53,9 @@ static uint8_t default_iv[AES_BLOCK_SIZE] = {
  * 'hwkey-app' tries to use that.
  */
 #if (ENABLE_TEGRA_SE == 1)
-static char args_doc[] = "-e [-d] -i <file> -o <out-file> -t|[s]";
+static char args_doc[] = "-e [-d] -i <file> -o <out-file> -t|[s] or -r <random size>";
 #else
-static char args_doc[] = "-e [-d] -i <file> -o <out-file> -t";
+static char args_doc[] = "-e [-d] -i <file> -o <out-file> -t or -r <random size>";
 #endif
 
 static struct argp_option options[] = {
@@ -63,6 +64,7 @@ static struct argp_option options[] = {
 	{"in", 'i', "file", 0, "Input file for encrypt/decrypt"},
 	{"out", 'o', "outfile", 0, "Output file" },
 	{"trusty", 't', 0, 0, "Encrypt using Trusty"},
+	{"get_random", 'r', "len", 0, "Get random number (input random number length)"},
 #if (ENABLE_TEGRA_SE == 1)
 	{"tegracrypto", 's', 0, 0, "Encrypt using SE via /dev/tegra-crypto"},
 #endif
@@ -74,6 +76,8 @@ struct arguments {
 	char* in_file;
 	char* out_file;
 	bool trusty;
+	bool get_random;
+	int rng_size;
 };
 
 static error_t parse_opt(int key, char *arg, struct argp_state *state) {
@@ -87,13 +91,22 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state) {
 		argus->encryption = false;
 		break;
 	case 'i':
-		argus->in_file = strdup(arg);
+		if (arg)
+			argus->in_file = strdup(arg);
 		break;
 	case 'o':
-		argus->out_file = strdup(arg);
+		if (arg)
+			argus->out_file = strdup(arg);
 		break;
 	case 't':
 		argus->trusty = true;
+		break;
+	case 'r':
+		argus->get_random = true;
+		if (arg)
+			argus->rng_size = atoi(arg);
+		else
+			argus->rng_size = 16;
 		break;
 #if (ENABLE_TEGRA_SE == 1)
 	case 's':
@@ -101,10 +114,10 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state) {
 		break;
 #endif
 	case ARGP_KEY_ARG:
+	case ARGP_KEY_END:
 		if (state->argc <= 1)
 			argp_usage(state);
-	case ARGP_KEY_END:
-		if (!argus->in_file || !argus->out_file || state->argc <= 6)
+		if (argus->in_file && state->argc <= 6)
 			argp_usage(state);
 	default:
 		return ARGP_ERR_UNKNOWN;
@@ -238,26 +251,20 @@ re_send:
 	return rc;
 }
 
-int main(int argc, char *argv[]) {
-	struct arguments argus;
+static void handle_file_encryption(struct arguments *argus)
+{
 	int inf_size, total_len = 0;
 
-	/* Handle the break signal */
-	signal(SIGINT, fail_handler);
-
-	/* Handle the input parameters */
-	argp_parse(&argp, argc, argv, 0, 0, &argus);
-
 	/* Create and open the input/output files */
-	infptr = fopen(argus.in_file, "rb");
+	infptr = fopen(argus->in_file, "rb");
 	if (infptr == NULL) {
-		LOG("Fail to open the input file: %s\n", argus.in_file);
+		LOG("Fail to open the input file: %s\n", argus->in_file);
 		fail_handler(1);
 	}
 
-	outfptr = fopen(argus.out_file, "wb");
+	outfptr = fopen(argus->out_file, "wb");
 	if (outfptr == NULL) {
-		LOG("Fail to open the output file: %s\n", argus.out_file);
+		LOG("Fail to open the output file: %s\n", argus->out_file);
 		fail_handler(1);
 	}
 
@@ -299,20 +306,100 @@ int main(int argc, char *argv[]) {
 			last_packet = true;
 
 		/* Handle crypto service */
-		crypto_srv_handler(&argus, buff, f_rc, outfptr, first_packet);
+		crypto_srv_handler(argus, buff, f_rc, outfptr, first_packet);
 
 		if (last_packet)
 			break;
 	} while(1);
 
-	if (argus.trusty)
+	if (argus->trusty)
 		tipc_close(crypto_srv_fd);
 	else
-		tegra_crypto_op(NULL, NULL, 0, NULL, 0, argus.encryption,
+		tegra_crypto_op(NULL, NULL, 0, NULL, 0, argus->encryption,
 				TEGRA_CRYPTO_CBC, true);
 
 	fclose(infptr);
 	fclose(outfptr);
+}
+
+static void dump_random_num(const uint8_t *ptr, size_t len)
+{
+	const uint8_t *addr = ptr;
+	size_t count;
+	size_t i;
+
+	for (count = 0 ; count < len; count += 16) {
+		for (i=0; i < MIN(len - count, 16); i++)
+			fprintf(stderr, "%02hhx", *(addr + i));
+		fprintf(stderr, "\n");
+		addr += 16;
+	}
+}
+
+static void handle_get_random(struct arguments *argus)
+{
+	rng_srv_msg_t *rng_msg;
+	int rng_srv_fd;
+
+	if (argus->rng_size == 0)
+		return;
+
+	if (argus->rng_size > RNG_SRV_DATA_SIZE) {
+		LOG("%s: the maximum random number length is %d.\n", __func__, RNG_SRV_DATA_SIZE);
+		return;
+	}
+
+	rng_srv_fd = tipc_connect(TIPC_DEFAULT_NODE, TA_RNG_SRV_CHAL);
+	if (rng_srv_fd < 0) {
+		LOG("%s: tipc_connect fail.\n", __func__);
+		return;
+	}
+
+	rng_msg = calloc(1, sizeof(rng_srv_msg_t));
+	if (rng_msg == NULL) {
+		LOG("%s: calloc fail.\n", __func__);
+		return;
+	}
+
+	rng_msg->rng_size = argus->rng_size;
+
+	/* Send msg to TA */
+	write(rng_srv_fd, rng_msg, sizeof(rng_srv_msg_t));
+
+	/* Get response from TA */
+	read(rng_srv_fd, rng_msg, sizeof(rng_srv_msg_t));
+
+	tipc_close(rng_srv_fd);
+
+	if (rng_msg->rng_size > 0)
+		dump_random_num(rng_msg->rng_data, rng_msg->rng_size);
+	else
+		LOG("%s: get_random failed\n", __func__);
+
+	free(rng_msg);
+}
+
+int main(int argc, char *argv[])
+{
+	struct arguments argus;
+
+	/* Initialize the arguments */
+	argus.in_file = NULL;
+	argus.out_file = NULL;
+	argus.encryption = false;
+	argus.get_random = false;
+
+	/* Handle the break signal */
+	signal(SIGINT, fail_handler);
+
+	/* Handle the input parameters */
+	argp_parse(&argp, argc, argv, 0, 0, &argus);
+
+	if (argus.in_file)
+		handle_file_encryption(&argus);
+
+	if (argus.get_random)
+		handle_get_random(&argus);
 
 	return 0;
 }

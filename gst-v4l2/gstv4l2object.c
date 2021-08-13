@@ -2,7 +2,7 @@
  *
  * Copyright (C) 2001-2002 Ronald Bultje <rbultje@ronald.bitfreak.net>
  *               2006 Edgard Lima <edgard.lima@gmail.com>
- * Copyright (c) 2018-2020, NVIDIA CORPORATION. All rights reserved.
+ * Copyright (c) 2018-2021, NVIDIA CORPORATION. All rights reserved.
  *
  * gstv4l2object.c: base class for V4L2 elements
  *
@@ -171,6 +171,7 @@ static const GstV4L2FormatDesc gst_v4l2_formats[] = {
   {V4L2_PIX_FMT_P010M, TRUE, GST_V4L2_RAW},
   {V4L2_PIX_FMT_P012, TRUE, GST_V4L2_RAW},
   {V4L2_PIX_FMT_P012M, TRUE, GST_V4L2_RAW},
+  {V4L2_PIX_FMT_NV24M, TRUE, GST_V4L2_RAW},
 #endif
   /* Bayer formats - see http://www.siliconimaging.com/RGB%20Bayer.htm */
   {V4L2_PIX_FMT_SBGGR8, TRUE, GST_V4L2_CODEC},
@@ -1033,7 +1034,9 @@ gst_v4l2_object_get_format_from_fourcc (GstV4l2Object * v4l2object,
       }
     }
 #ifdef USE_V4L2_TARGET_NV
-    if (fourcc == V4L2_PIX_FMT_P010M || fourcc == V4L2_PIX_FMT_P012M) {
+    if (fourcc == V4L2_PIX_FMT_P010M ||
+        fourcc == V4L2_PIX_FMT_P012M ||
+        fourcc == V4L2_PIX_FMT_NV24M) {
       fmt->pixelformat = fourcc;
       return fmt;
     }
@@ -1131,6 +1134,7 @@ gst_v4l2_object_format_get_rank (const struct v4l2_fmtdesc *fmt)
 #ifdef USE_V4L2_TARGET_NV
     case V4L2_PIX_FMT_P012:    /* Y/CbCr 4:2:0, 12 bits per channel */
     case V4L2_PIX_FMT_P012M:
+    case V4L2_PIX_FMT_NV24M:
 #endif
     case V4L2_PIX_FMT_NV21:    /* 12  Y/CrCb 4:2:0  */
     case V4L2_PIX_FMT_NV21M:   /* Same as NV21      */
@@ -1461,6 +1465,9 @@ gst_v4l2_object_v4l2fourcc_to_video_format (guint32 fourcc)
       format = GST_VIDEO_FORMAT_NV61;
       break;
     case V4L2_PIX_FMT_NV24:
+#ifdef USE_V4L2_TARGET_NV
+    case V4L2_PIX_FMT_NV24M:
+#endif
       format = GST_VIDEO_FORMAT_NV24;
       break;
     default:
@@ -1599,6 +1606,9 @@ gst_v4l2_object_v4l2fourcc_to_bare_struct (guint32 fourcc)
     case V4L2_PIX_FMT_NV16M:
     case V4L2_PIX_FMT_NV61:    /* 16  Y/CrCb 4:2:2  */
     case V4L2_PIX_FMT_NV61M:
+#ifdef USE_V4L2_TARGET_NV
+    case V4L2_PIX_FMT_NV24M:
+#endif
     case V4L2_PIX_FMT_NV24:    /* 24  Y/CrCb 4:4:4  */
     case V4L2_PIX_FMT_YVU410:
     case V4L2_PIX_FMT_YUV410:
@@ -1883,6 +1893,9 @@ gst_v4l2_object_get_caps_info (GstV4l2Object * v4l2object, GstCaps * caps,
         break;
       case GST_VIDEO_FORMAT_NV24:
         fourcc = V4L2_PIX_FMT_NV24;
+#ifdef USE_V4L2_TARGET_NV
+        fourcc_nc = V4L2_PIX_FMT_NV24M;
+#endif
         break;
       case GST_VIDEO_FORMAT_YVYU:
         fourcc = V4L2_PIX_FMT_YVYU;
