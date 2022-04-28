@@ -690,7 +690,8 @@ void
 gst_egl_adaptation_context_free (GstEglAdaptationContext * ctx)
 {
   gst_egl_adaptation_deinit (ctx);
-  gst_object_unref (ctx->element);
+  if (GST_OBJECT_REFCOUNT(ctx->element))
+      gst_object_unref (ctx->element);
   g_free (ctx);
 }
 
