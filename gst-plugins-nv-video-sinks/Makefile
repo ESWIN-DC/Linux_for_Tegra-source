@@ -26,7 +26,7 @@ SRCS := common/context.c \
 
 IS_GST_PLUGIN:=1
 
-CFLAGS := -g -O0 -fPIC \
+CFLAGS := -O2 -fPIC \
     -DNV_VIDEO_SINKS_HAS_EGL \
     -DNV_VIDEO_SINKS_HAS_GL \
     -DNV_VIDEO_SINKS_HAS_NV3DSINK \

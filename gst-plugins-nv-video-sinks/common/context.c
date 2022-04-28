@@ -130,9 +130,8 @@ gst_nv_video_context_render_thread_func (GstNvVideoContext * context)
       }
     }
 
-    /* Sleep time align with the framerate */
-    g_usleep (G_USEC_PER_SEC * context->configured_info.fps_d /
-      context->configured_info.fps_n);
+    /* Sleep time doesn't align with the framerate, but close to 120 fps. */
+    g_usleep (G_USEC_PER_SEC / 120);
 
     GST_TRACE_OBJECT (context, "render thread: handled");
   }
