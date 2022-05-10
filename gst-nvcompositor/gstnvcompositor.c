@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2020, NVIDIA CORPORATION. All rights reserved.
+ * Copyright (c) 2017-2021, NVIDIA CORPORATION. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -27,11 +27,37 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <string.h>
+
 #include "gstnvcompositor.h"
 #include "gstnvcompositorpad.h"
 
 GST_DEBUG_CATEGORY_STATIC (gst_nvcompositor_debug);
 #define GST_CAT_DEFAULT gst_nvcompositor_debug
+
+#define GST_TYPE_INTERPOLATION_METHOD (gst_video_interpolation_method_get_type())
+
+static const GEnumValue video_interpolation_methods[] = {
+  {GST_INTERPOLATION_NEAREST, "Nearest", "Nearest"},
+  {GST_INTERPOLATION_BILINEAR, "Bilinear", "Bilinear"},
+  {GST_INTERPOLATION_5_TAP, "5-Tap", "5-Tap"},
+  {GST_INTERPOLATION_10_TAP, "10-Tap", "10-Tap"},
+  {GST_INTERPOLATION_SMART, "Smart", "Smart"},
+  {GST_INTERPOLATION_NICEST, "Nicest", "Nicest"},
+  {0, NULL, NULL},
+};
+
+static GType
+gst_video_interpolation_method_get_type (void)
+{
+  static GType video_interpolation_method_type = 0;
+
+  if (!video_interpolation_method_type) {
+      video_interpolation_method_type = g_enum_register_static ("GstInterpolationMethods",
+        video_interpolation_methods);
+  }
+  return video_interpolation_method_type;
+}
 
 /* capabilities of the inputs and outputs */
 
@@ -68,7 +94,8 @@ enum
   PROP_NVCOMP_PAD_YPOS,
   PROP_NVCOMP_PAD_WIDTH,
   PROP_NVCOMP_PAD_HEIGHT,
-  PROP_NVCOMP_PAD_ALPHA
+  PROP_NVCOMP_PAD_ALPHA,
+  PROP_NVCOMP_PAD_FILTER
 };
 
 #define NV_COMPOSITOR_MAX_BUF         6
@@ -322,6 +349,9 @@ gst_nvcompositor_pad_set_property (GObject * object, guint prop_id,
     case PROP_NVCOMP_PAD_ALPHA:
       pad->alpha = g_value_get_double (value);
       break;
+    case PROP_NVCOMP_PAD_FILTER:
+      pad->interpolation_method = g_value_get_enum (value);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
@@ -356,6 +386,9 @@ gst_nvcompositor_pad_get_property (GObject * object, guint prop_id,
       break;
     case PROP_NVCOMP_PAD_ALPHA:
       g_value_set_double (value, pad->alpha);
+      break;
+    case PROP_NVCOMP_PAD_FILTER:
+      g_value_set_enum (value, pad->interpolation_method);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -678,6 +711,12 @@ gst_nvcompositor_pad_class_init (GstNvCompositorPadClass * klass)
       g_param_spec_double ("alpha", "Alpha", "Alpha of the frame", 0.0, 1.0,
           DEFAULT_NVCOMP_PAD_ALPHA,
           G_PARAM_READWRITE | GST_PARAM_CONTROLLABLE | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (gobject_class, PROP_NVCOMP_PAD_FILTER,
+      g_param_spec_enum ("interpolation-method", "Interpolation-method", "Set interpolation methods",
+          GST_TYPE_INTERPOLATION_METHOD, GST_INTERPOLATION_NEAREST,
+          GST_PARAM_CONTROLLABLE | G_PARAM_READWRITE | G_PARAM_CONSTRUCT |
+          G_PARAM_STATIC_STRINGS));
 
   vaggpadclass->set_info = GST_DEBUG_FUNCPTR (gst_nvcompositor_pad_set_info);
   vaggpadclass->prepare_frame =
@@ -1157,7 +1196,6 @@ do_nvcomposite (GstVideoAggregator * vagg, gint out_dmabuf_fd)
   gint input_dmabuf_fds[MAX_INPUT_FRAME] = {-1, -1, -1, -1, -1, -1};
   gint input_dmabuf_count = 0;
   gint releasefd_index[MAX_INPUT_FRAME] = { 0 };
-  NvBufferCompositeParams comp_params = { 0 };
   GstMemory *inmem = NULL;
   GstMapInfo inmap = GST_MAP_INFO_INIT;
 
@@ -1206,29 +1244,55 @@ do_nvcomposite (GstVideoAggregator * vagg, gint out_dmabuf_fd)
       return FALSE;
     }
 
-    comp_params.src_comp_rect[i].left = 0;
-    comp_params.src_comp_rect[i].top = 0;
-    comp_params.src_comp_rect[i].width = compo_pad->input_width;
-    comp_params.src_comp_rect[i].height = compo_pad->input_height;
+    nvcomp->comp_params.src_comp_rect[i].left = 0;
+    nvcomp->comp_params.src_comp_rect[i].top = 0;
+    nvcomp->comp_params.src_comp_rect[i].width = compo_pad->input_width;
+    nvcomp->comp_params.src_comp_rect[i].height = compo_pad->input_height;
 
-    comp_params.dst_comp_rect[i].left = compo_pad->xpos;
-    comp_params.dst_comp_rect[i].top = compo_pad->ypos;
+    nvcomp->comp_params.dst_comp_rect[i].left = compo_pad->xpos;
+    nvcomp->comp_params.dst_comp_rect[i].top = compo_pad->ypos;
     if (compo_pad->width) {
-      comp_params.dst_comp_rect[i].width = compo_pad->width;
+      nvcomp->comp_params.dst_comp_rect[i].width = compo_pad->width;
     } else {
-      comp_params.dst_comp_rect[i].width = compo_pad->input_width;
+      nvcomp->comp_params.dst_comp_rect[i].width = compo_pad->input_width;
     }
 
     if (compo_pad->height) {
-      comp_params.dst_comp_rect[i].height = compo_pad->height;
+      nvcomp->comp_params.dst_comp_rect[i].height = compo_pad->height;
     } else {
-      comp_params.dst_comp_rect[i].height = compo_pad->input_height;
+      nvcomp->comp_params.dst_comp_rect[i].height = compo_pad->input_height;
     }
 
-    comp_params.dst_comp_rect_alpha[i] = (gfloat) compo_pad->alpha;
+    nvcomp->comp_params.dst_comp_rect_alpha[i] = (gfloat) compo_pad->alpha;
     if (compo_pad->comppad_pix_fmt != NvBufferColorFormat_ABGR32) {
       all_yuv = 1;
     }
+
+    switch(compo_pad->interpolation_method)
+    {
+      case GST_INTERPOLATION_NEAREST:
+          nvcomp->comp_params.composite_filter[i] = NvBufferTransform_Filter_Nearest;
+        break;
+      case GST_INTERPOLATION_BILINEAR:
+          nvcomp->comp_params.composite_filter[i] = NvBufferTransform_Filter_Bilinear;
+        break;
+      case GST_INTERPOLATION_5_TAP:
+          nvcomp->comp_params.composite_filter[i] = NvBufferTransform_Filter_5_Tap;
+        break;
+      case GST_INTERPOLATION_10_TAP:
+          nvcomp->comp_params.composite_filter[i] = NvBufferTransform_Filter_10_Tap;
+        break;
+      case GST_INTERPOLATION_SMART:
+          nvcomp->comp_params.composite_filter[i] = NvBufferTransform_Filter_Smart;
+        break;
+      case GST_INTERPOLATION_NICEST:
+          nvcomp->comp_params.composite_filter[i] = NvBufferTransform_Filter_Nicest;
+        break;
+      default:
+          nvcomp->comp_params.composite_filter[i] = NvBufferTransform_Filter_Smart;
+        break;
+    }
+
     if (inmap.data) {
       gst_buffer_unmap (pad->buffer, &inmap);
     }
@@ -1236,22 +1300,23 @@ do_nvcomposite (GstVideoAggregator * vagg, gint out_dmabuf_fd)
     input_dmabuf_count += 1;
     i++;
   }
-  comp_params.input_buf_count = input_dmabuf_count;
+  nvcomp->comp_params.input_buf_count = input_dmabuf_count;
 
   if (!all_yuv && (nvcomp->out_pix_fmt == NvBufferColorFormat_ABGR32)) {
-    comp_params.composite_flag |= NVBUFFER_BLEND;
+    nvcomp->comp_params.composite_flag |= NVBUFFER_BLEND;
   }
 
-  comp_params.composite_flag |= NVBUFFER_COMPOSITE;
+  nvcomp->comp_params.composite_flag |= NVBUFFER_COMPOSITE;
+  nvcomp->comp_params.composite_flag |= NVBUFFER_COMPOSITE_FILTER;
 
-  if (!(comp_params.composite_flag & NVBUFFER_BLEND)) {
+  if (!(nvcomp->comp_params.composite_flag & NVBUFFER_BLEND)) {
     get_bg_color (nvcomp);
-    comp_params.composite_bgcolor.r = nvcomp->bg.r;
-    comp_params.composite_bgcolor.g = nvcomp->bg.g;
-    comp_params.composite_bgcolor.b = nvcomp->bg.b;
+    nvcomp->comp_params.composite_bgcolor.r = nvcomp->bg.r;
+    nvcomp->comp_params.composite_bgcolor.g = nvcomp->bg.g;
+    nvcomp->comp_params.composite_bgcolor.b = nvcomp->bg.b;
   }
 
-  ret = NvBufferComposite (input_dmabuf_fds, out_dmabuf_fd, &comp_params);
+  ret = NvBufferComposite (input_dmabuf_fds, out_dmabuf_fd, &nvcomp->comp_params);
   if (ret != 0) {
     GST_ERROR ("NvBufferComposite failed");
     return FALSE;
@@ -1457,6 +1522,7 @@ gst_nvcompositor_init (GstNvCompositor * nvcomp)
   nvcomp->bg.g = 0;
   nvcomp->bg.b = 0;
   nvcomp->pool = NULL;
+  memset(&nvcomp->comp_params, 0, sizeof(NvBufferCompositeParams));
 }
 
 /* NvCompositor Element registration */

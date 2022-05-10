@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2014 SUMOMO Computer Association.
  *     Author: ayaka <ayaka@soulik.info>
- * Copyright (c) 2018-2019, NVIDIA CORPORATION. All rights reserved.
+ * Copyright (c) 2018-2021, NVIDIA CORPORATION. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -71,6 +71,8 @@ struct _GstV4l2VideoEnc
   guint virtual_buffer_size;
   gboolean measure_latency;
   gboolean ratecontrol_enable;
+  gboolean force_idr;
+  gboolean force_intra;
   gboolean maxperf_enable;
   FILE *tracing_file_enc;
   GQueue *got_frame_pt;

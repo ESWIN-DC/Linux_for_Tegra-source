@@ -76,189 +76,6 @@ errout:
 	return ret;
 }
 
-static int tegra_uphy_pll_enable(void)
-{
-	u32 val;
-	unsigned long start;
-
-	debug("%s: entry\n", __func__);
-
-	/* UPHY PLL init from TRM, page 1391 */
-	/* 1. Deassert PLL/Lane resets */
-	reset_set_enable(PERIPH_ID_PEX_USB_UPHY, 0);
-
-	/* Set cal values and overrides
-	 * (0x364, b27:4)- UPHY_PLL_P0_CTL_2_0[PLL0_CAL_CTRL] = 0x136
-	 * (0x370, b23:16)- UPHY_PLL_P0_CTL_5_0[PLL0_DCO_CTRL] = 0x2A
-	 * (0x360, b4)- UPHY_PLL_P0_CTL_1_0[PLL0_PWR_OVRD] = 1 (Default)
-	 * (0x364, b2)- UPHY_PLL_P0_CTL_2_0[PLL0_CAL_OVRD] = 1
-	 * (0x37C, b15)- UPHY_PLL_P0_CTL_8_0[PLL0_RCAL_OVRD] = 1
-	 */
-	val = (0x136 << 4);
-	NV_XUSB_PADCTL_WRITE(UPHY_PLL_P0_CTL_2, val);
-
-	NV_XUSB_PADCTL_READ(UPHY_PLL_P0_CTL_5, val);
-	val &= 0x0000FFFF;
-	val |= (0x2A << 16);
-	NV_XUSB_PADCTL_WRITE(UPHY_PLL_P0_CTL_5, val);
-
-	NV_XUSB_PADCTL_READ(UPHY_PLL_P0_CTL_1, val);
-	val |= (1 << 4);
-	NV_XUSB_PADCTL_WRITE(UPHY_PLL_P0_CTL_1, val);
-
-	NV_XUSB_PADCTL_READ(UPHY_PLL_P0_CTL_2, val);
-	val |= (1 << 2);
-	NV_XUSB_PADCTL_WRITE(UPHY_PLL_P0_CTL_2, val);
-
-	NV_XUSB_PADCTL_READ(UPHY_PLL_P0_CTL_8, val);
-	val |= (1 << 15);
-	NV_XUSB_PADCTL_WRITE(UPHY_PLL_P0_CTL_8, val);
-
-	/* 2. Other reg bits (P0_CTL4, P0_CTL_1 MDIV/NDIV/PSDIV) defaults OK
-	 * (0x360, b0)- UPHY_PLL_P0_CTL_1_0[PLL0_IDDQ] = 0
-	 * (0x360, b2:1)- UPHY_PLL_P0_CTL_1_0[PLL0_SLEEP] = 00
-	 */
-	NV_XUSB_PADCTL_READ(UPHY_PLL_P0_CTL_1, val);
-	val &= ~(7 << 0);
-	NV_XUSB_PADCTL_WRITE(UPHY_PLL_P0_CTL_1, val);
-
-	/* 3. Wait 100 ns */
-	udelay(1);
-
-	/* 4. Calibration
-	 * (0x364, b0)- UPHY_PLL_P0_CTL_2_0[PLL0_CAL_EN] = 1
-	 * (0x364, b1)- Wait for UPHY_PLL_P0_CTL_2_0[PLL0_CAL_DONE] == 1
-	 * (0x364, b0)- UPHY_PLL_P0_CTL_2_0[PLL0_CAL_EN] = 0
-	 * (0x364), b1- Wait for UPHY_PLL_P0_CTL_2_0[PLL0_CAL_DONE] == 0
-	 */
-	NV_XUSB_PADCTL_READ(UPHY_PLL_P0_CTL_2, val);
-	val |= (1 << 0);
-	NV_XUSB_PADCTL_WRITE(UPHY_PLL_P0_CTL_2, val);
-
-	debug("%s: Waiting for calibration done ...", __func__);
-	start = get_timer(0);
-
-	while (get_timer(start) < 250) {
-		NV_XUSB_PADCTL_READ(UPHY_PLL_P0_CTL_2, val);
-		if (val & XUSB_PADCTL_UPHY_PLL_P0_CTL2_CAL_DONE)
-			break;
-	}
-
-	if (!(val & XUSB_PADCTL_UPHY_PLL_P0_CTL2_CAL_DONE)) {
-		debug("  timeout\n");
-		return -ETIMEDOUT;
-	}
-	debug("done\n");
-
-	NV_XUSB_PADCTL_READ(UPHY_PLL_P0_CTL_2, val);
-	val &= ~(1 << 0);
-	NV_XUSB_PADCTL_WRITE(UPHY_PLL_P0_CTL_2, val);
-
-	debug("%s: Waiting for calibration done == 0 ...", __func__);
-	start = get_timer(0);
-
-	while (get_timer(start) < 250) {
-		NV_XUSB_PADCTL_READ(UPHY_PLL_P0_CTL_2, val);
-		if ((val & XUSB_PADCTL_UPHY_PLL_P0_CTL2_CAL_DONE) == 0)
-			break;
-	}
-
-	if (val & XUSB_PADCTL_UPHY_PLL_P0_CTL2_CAL_DONE) {
-		debug("  timeout\n");
-		return -ETIMEDOUT;
-	}
-	debug("done\n");
-
-	/* 5. Enable the PLL (20 µs Lock time)
-	 * (0x360, b3)- UPHY_PLL_P0_CTL_1_0[PLL0_ENABLE] = 1
-	 * (0x360, b15)- Wait for UPHY_PLL_P0_CTL_1_0[PLL0_LOCKDET_STATUS] == 1
-	 */
-	NV_XUSB_PADCTL_READ(UPHY_PLL_P0_CTL_1, val);
-	val |= (1 << 3);
-	NV_XUSB_PADCTL_WRITE(UPHY_PLL_P0_CTL_1, val);
-
-	debug("%s: Waiting for lock detect ...", __func__);
-	start = get_timer(0);
-
-	while (get_timer(start) < 250) {
-		NV_XUSB_PADCTL_READ(UPHY_PLL_P0_CTL_1, val);
-		if (val & XUSB_PADCTL_UPHY_PLL_P0_CTL1_PLL0_LOCKDET)
-			break;
-	}
-
-	if (!(val & XUSB_PADCTL_UPHY_PLL_P0_CTL1_PLL0_LOCKDET)) {
-		debug("  timeout\n");
-		return -ETIMEDOUT;
-	}
-	debug("done\n");
-
-	/* 6. RCAL
-	 * (0x37C, b12)- UPHY_PLL_P0_CTL_8_0[PLL0_RCAL_EN] = 1
-	 * (0x37C, b13)- UPHY_PLL_P0_CTL_8_0[PLL0_RCAL_CLK_EN] = 1
-	 * (0x37C, b31)- Wait for UPHY_PLL_P0_CTL_8_0[PLL0_RCAL_DONE] == 1
-	 * (0x37C, b12)- UPHY_PLL_P0_CTL_8_0[PLL0_RCAL_EN] = 0
-	 * (0x37C, b31)- Wait for UPHY_PLL_P0_CTL_8_0[PLL0_RCAL_DONE] == 0
-	 * (0x37C, b13)- UPHY_PLL_P0_CTL_8_0[PLL0_RCAL_CLK_EN] = 0
-	 */
-	NV_XUSB_PADCTL_READ(UPHY_PLL_P0_CTL_8, val);
-	val |= (3 << 12);
-	NV_XUSB_PADCTL_WRITE(UPHY_PLL_P0_CTL_8, val);
-
-	debug("%s: Waiting for rcal done ...", __func__);
-	start = get_timer(0);
-
-	while (get_timer(start) < 250) {
-		NV_XUSB_PADCTL_READ(UPHY_PLL_P0_CTL_8, val);
-		if (val & XUSB_PADCTL_UPHY_PLL_P0_CTL8_PLL0_RCAL_DONE)
-			break;
-	}
-
-	if (!(val & XUSB_PADCTL_UPHY_PLL_P0_CTL8_PLL0_RCAL_DONE)) {
-		debug("  timeout\n");
-		return -ETIMEDOUT;
-	}
-	debug("done\n");
-
-	val &= ~(1 << 12);
-	NV_XUSB_PADCTL_WRITE(UPHY_PLL_P0_CTL_8, val);
-
-	debug("%s: Waiting for rcal done == 0 ...", __func__);
-	start = get_timer(0);
-
-	while (get_timer(start) < 250) {
-		NV_XUSB_PADCTL_READ(UPHY_PLL_P0_CTL_8, val);
-		if ((val & XUSB_PADCTL_UPHY_PLL_P0_CTL8_PLL0_RCAL_DONE) == 0)
-			break;
-	}
-
-	if (val & XUSB_PADCTL_UPHY_PLL_P0_CTL8_PLL0_RCAL_DONE) {
-		debug("  timeout\n");
-		return -ETIMEDOUT;
-	}
-	debug("done\n");
-
-	val &= ~(1 << 13);
-	NV_XUSB_PADCTL_WRITE(UPHY_PLL_P0_CTL_8, val);
-
-	/* Finally, lift PADCTL overrides
-	 * (0x360, b4)- UPHY_PLL_P0_CTL_1_0[PLL0_PWR_OVRD] = 0
-	 * (0x364, b2)- UPHY_PLL_P0_CTL_2_0[PLL0_CAL_OVRD] = 0
-	 * (0x37C, b15)- UPHY_PLL_P0_CTL_8_0[PLL0_RCAL_OVRD] = 0
-	 */
-	NV_XUSB_PADCTL_READ(UPHY_PLL_P0_CTL_1, val);
-	val &= ~(1 << 4);
-	NV_XUSB_PADCTL_WRITE(UPHY_PLL_P0_CTL_1, val);
-
-	NV_XUSB_PADCTL_READ(UPHY_PLL_P0_CTL_2, val);
-	val &= ~(1 << 2);
-	NV_XUSB_PADCTL_WRITE(UPHY_PLL_P0_CTL_2, val);
-
-	NV_XUSB_PADCTL_READ(UPHY_PLL_P0_CTL_8, val);
-	val &= ~(1 << 15);
-	NV_XUSB_PADCTL_WRITE(UPHY_PLL_P0_CTL_8, val);
-
-	return 0;
-}
 
 static void tegra_pllu_enable(void)
 {
@@ -266,97 +83,32 @@ static void tegra_pllu_enable(void)
 	/* TODO: Enable PLLU here */
 }
 
-void tegra_xusb_slam_padctl_init(void)
+/* Simple hacky way to get board ID (3450, 3541, etc). */
+static int get_board_id(void)
 {
-	/*
-	 * FIXME: SLAM PADCTL REGS HERE USING KERNEL VALUES FOR NANO/TX1
-	 * Essentially does this:
-	 *  assign USB2 pads to XUSB (PADCTL)
-	 *  assign port caps for USB2 ports owned by XUSB (PADCTL)
-	 *  program PADCTL regs to keep UPHY in IDDQ
-	 *  assign UPHY lanes to XUSB (PADCTL)
-	 *  take UPHY out of IDDQ (PADCTL)
-	 *  assign static UPHY PAD/PLL params lanes (PADCTL)
-	 *  assign static UPHY PAD params of ports owned by XUSB (PADCTL)
-	 *  assign static USB2 PAD params to ports owned by XUSB (PADCTL)
-	 *  disable powerdown of USB2 ports owned by XUSB (PADCTL)
-	 *  release the XUSB SS wake logic state latches (PADCTL)
-	 *  bring lanes of UPHY out of IDDQ (only used lanes) (PADCTL)
-	 *  release always-on PAD muxing logic state latching (PADCTL)
-	 * This is a WAR because the U-Boot XUSB padctl driver isn't
-	 *  setting things up correctly at this time, need to debug & fix.
-	 */
+	/* for ex, CONFIG_TEGRA_BOARD_STRING = "NVIDIA P3450-0000" */
+	const char *board = CONFIG_TEGRA_BOARD_STRING;
+	int board_num;
 
-	int i;
-	u32 reg, val;
-	u32 *xusbpadctl = (u32 *)NV_ADDRESS_MAP_APB_XUSB_PADCTL_BASE;
-	u32 padctl_regs[] = {
-		/* reg		data */
-		0x0004, 0x00040055,		// USB2_PAD_MUX
-		0x0008, 0x00000113,		// USB2_PORT_CAP
-		0x0014, 0x00001CE1,		// SS_PORT_MAP
-		0x0020, 0x00C00100,		// ELPG_PROGRAM_0
-		0x0024, 0x000001F8,		// ELPG_PROGRAM_1
-		0x0028, 0x817FC0FE,		// USB3_PAD_MUX
-		0x0088, 0x00CD100E,		// USB2_OTG_PAD0_CTL_0
-		0x008C, 0x12100040,		// USB2_OTG_PAD0_CTL_1
-		0x00C8, 0x00CD1011,		// USB2_OTG_PAD1_CTL_0
-		0x00CC, 0x12100040,		// USB2_OTG_PAD1_CTL_1
-		0x0108, 0x00CD100E,		// USB2_OTG_PAD2_CTL_0
-		0x010C, 0x10100040,		// USB2_OTG_PAD2_CTL_1
-		0x0284, 0x260E003A,		// USB2_BIAS_PAD_CTL_0
-		0x0288, 0x0451E8E5,		// USB2_BIAS_PAD_CTL_1
-		0x0460, 0x01000080,		// UPHY_MISC_PAD_P0_CTL_1
-		0x04A0, 0x11000000,		// UPHY_MISC_PAD_P1_CTL_1
-		0x04E0, 0x11000000,		// UPHY_MISC_PAD_P2_CTL_1
-		0x0520, 0x11000000,		// UPHY_MISC_PAD_P3_CTL_1
-		0x0560, 0x11000000,		// UPHY_MISC_PAD_P4_CTL_1
-		0x0AA0, 0x0020001F,		// UPHY_USB3_PAD1_ECTL_1
-		0x0AA4, 0x000000FC,		// UPHY_USB3_PAD1_ECTL_2
-		0x0AA8, 0xC0077F1F,		// UPHY_USB3_PAD1_ECTL_3
-		0x0AB4, 0xFCF01368,		// UPHY_USB3_PAD1_ECTL_6
-		0x0C60, 0x0021505B,		// USB2_VBUS_ID
-	};
+	board_num = (int) simple_strtol(board+8, NULL, 10);
+	debug("%s: board = %d\n", __func__, board_num);
 
-	debug("%s: entry\n", __func__);
-
-	for (i = 0; i < sizeof(padctl_regs) / 4; i += 2) {
-		reg = padctl_regs[i];
-		val = padctl_regs[i + 1];
-		writel(val, xusbpadctl + (reg / 4));
-		debug("%s: Wrote 0x%08X to 0x7009F%03X\n", __func__, val, reg);
-	}
+	return board_num;
 }
 
-static void pad_trk_init(void)
+void do_tegra_xusb_padctl_init(void)
 {
-	u32 val;
-
+	int board_id;
 	debug("%s: entry\n", __func__);
 
-	/* Enable tracking clock */
-	clock_enable(PERIPH_ID_USB2_TRK);
+	board_id = get_board_id();
+	debug("%s: Board ID = %d\n", __func__, board_id);
 
-	NV_XUSB_PADCTL_READ(USB2_PAD_MUX, val);
-	val &= ~(3 << USB2_BIAS_PAD);
-	val |= (1 << USB2_BIAS_PAD);			/* 1 = XUSB */
-	NV_XUSB_PADCTL_WRITE(USB2_PAD_MUX, val);
+	/* Set up USB2 pads (MUX, CTLx, CAP, etc.) */
+	do_padctl_usb2_config();
 
-	NV_XUSB_PADCTL_READ(USB2_BIAS_PAD_CTL_1, val);
-	val &= ~(0x7F << TRK_START_TIMER);		/* START TIMER = 0 */
-	val &= ~(0x7F << TRK_DONE_RESET_TIMER);
-	val |= (0x0A << TRK_DONE_RESET_TIMER);		/* DONE TIMER = 10 */
-	NV_XUSB_PADCTL_WRITE(USB2_BIAS_PAD_CTL_1, val);
-
-	NV_XUSB_PADCTL_READ(USB2_BIAS_PAD_CTL_0, val);
-	val &= ~(1 << PD);				/* PD = 0 */
-	NV_XUSB_PADCTL_WRITE(USB2_BIAS_PAD_CTL_0, val);
-
-	udelay(1);
-
-	NV_XUSB_PADCTL_READ(USB2_BIAS_PAD_CTL_1, val);
-	val &= ~(1 << PD_TRK);				/* Enable tracking */
-	NV_XUSB_PADCTL_WRITE(USB2_BIAS_PAD_CTL_1, val);
+	/* Set up SS port map */
+	padctl_usb3_port_init(board_id);
 }
 
 void xhci_clk_rst_init(struct tegra_xhci *tegra)
@@ -456,11 +208,8 @@ static int tegra_xhci_core_init(struct tegra_xhci *tegra, u32 fw_addr)
 	mdelay(1);
 	reset_set_enable(PERIPH_ID_XUSB_PADCTL, 0);
 
-	/* Slam PADCTL registers w/default values per board (TX1/Nano) */
-	tegra_xusb_slam_padctl_init();
-
-	/* Setup pad tracking */
-	pad_trk_init();
+	/* Setup PADCTL registers w/default values per board (TX1/Nano) */
+	do_tegra_xusb_padctl_init();
 
 	/* Check PLLU, set up if not enabled & locked */
 	val = readl(&clkrst->crc_pll[CLOCK_ID_USB].pll_base);
@@ -531,21 +280,21 @@ static void tegra_xhci_core_exit(struct tegra_xhci *tegra)
 	reset_set_enable(PERIPH_ID_USBD, 1);
 	reset_set_enable(PERIPH_ID_USB2, 1);
 
-        /* XUSB_PADCTL_USB2_BIAS_PAD_CTL_0_0, power down the bias pad */
+	/* XUSB_PADCTL_USB2_BIAS_PAD_CTL_0_0, power down the bias pad */
 	NV_XUSB_PADCTL_READ(USB2_BIAS_PAD_CTL_0, val);
-	val |= (1 << PD);
+	val |= BIAS_PAD_PD;
 	NV_XUSB_PADCTL_WRITE(USB2_BIAS_PAD_CTL_0, val);
 
 	/* Assert UPHY reset */
 	reset_set_enable(PERIPH_ID_PEX_USB_UPHY, 1);
 
-	/* Reset PADCTL (debug fix for HID on Batuu?) */
+	/* Reset PADCTL */
 	debug("%s: Resetting PADCTL block ...\n", __func__);
 	reset_set_enable(PERIPH_ID_XUSB_PADCTL, 1);
 	mdelay(1);
 	reset_set_enable(PERIPH_ID_XUSB_PADCTL, 0);
 
-	/* Set CLK_SRC_XUSB_FS to 'CLK_M' or LS/FS devices won't work in kernel */
+	/* Set CLK_SRC_XUSB_FS to 'CLK_M' or LS/FS devices fail in the kernel */
 	adjust_periph_pll(CLK_SRC_XUSB_FS, 0, MASK_BITS_31_29, 0);
 
 	debug("%s: done\n", __func__);

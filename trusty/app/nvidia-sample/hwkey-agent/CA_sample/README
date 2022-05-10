@@ -38,6 +38,10 @@ other clients or programs, this feature is disabled by default.
 You must check if the SE is available on the target and enable it
 manually in the 'makefile'.
 
+Hardware-based RNG (Random Number Generator):
+The CA can be used to query random numbers from the TA. The TA handles
+the HW RNG to extract random numbers and return them to the CA.
+
 ----------------------------------------------------------------------
 How to compile
 ----------------------------------------------------------------------
@@ -61,11 +65,14 @@ How to use hwkey-app
 Check the command usage with "--help" parameter.
 $> ./hwkey-app --help
 Usage: hwkey-app [OPTION...] -e [-d] -i <file> -o <out-file> -t|[s]
+       or
+       hwkey-app -r <random size>
 
   -d                         Decryption mode
   -e                         Encryption mode
   -i, --in=file              Input file for encrypt/decrypt
   -o, --out=outfile          Output file
+  -r, --get_random=len       Get random number (input random number length)
   -s, --tegracrypto          Encrypt using SE via /dev/tegra-crypto
   -t, --trusty               Encrypt using Trusty
   -?, --help                 Give this help list
@@ -80,12 +87,15 @@ Trusty IPC and Tegra crypto must have root permission or be part of
 the "trusty" and "crypto" groups to get the access permission.
 
 An example of a file encryption with Trusty.
-$> ./hwkey-app -e -i <input_file> -o <output_file> -t -p pkcs7
+$> ./hwkey-app -e -i <input_file> -o <output_file> -t
 
 An example of a file decryption with Trusty.
-$> ./hwkey-app -d -i <input_file> -o <output_file> -t -p pkcs7
+$> ./hwkey-app -d -i <input_file> -o <output_file> -t
 
 If the Tegra SE has been enabled, you can switch the '-t' to '-s'.
+
+An example of getting random numbers from Trusty.
+$>./hwkey-app -r 16
 
 ----------------------------------------------------------------------
 Limitation

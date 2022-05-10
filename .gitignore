@@ -1,3 +1,4 @@
 *.o
 Makefile.in
 autom4te.cache
+.ccls-cache/

@@ -86,7 +86,7 @@ def nist_sp_800_108_with_CMAC(key, context=b"", label=b"", len=16):
     okm = b""
     output_block = b""
     for count in range(ceil(len/16)):
-        data = b"".join([bytes([count+1]), label.encode(encoding="utf8"), bytes([0]), context.encode(encoding="utf8")])
+        data = b"".join([bytes([count+1]), label.encode(encoding="utf8"), bytes([0]), context.encode(encoding="utf8"), int(len*8).to_bytes(4, byteorder="big")])
         c = cmac.CMAC(algorithms.AES(key), backend=default_backend())
         c.update(data)
         output_block = c.finalize()

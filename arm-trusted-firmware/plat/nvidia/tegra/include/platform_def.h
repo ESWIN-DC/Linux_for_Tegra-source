@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2015-2018, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2021, NVIDIA Corporation. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -41,15 +42,15 @@
  ******************************************************************************/
 /* Size of trusted dram */
 #define TZDRAM_SIZE			U(0x00400000)
-#define TZDRAM_END			(TZDRAM_BASE + TZDRAM_SIZE)
+#define TZDRAM_END			(PLAT_BL31_BASE + TZDRAM_SIZE)
 
 /*******************************************************************************
  * BL31 specific defines.
  ******************************************************************************/
 #define BL31_SIZE			U(0x40000)
-#define BL31_BASE			TZDRAM_BASE
-#define BL31_LIMIT			(TZDRAM_BASE + BL31_SIZE - 1)
-#define BL32_BASE			(TZDRAM_BASE + BL31_SIZE)
+#define BL31_BASE			PLAT_BL31_BASE
+#define BL31_LIMIT			(PLAT_BL31_BASE + BL31_SIZE - 1)
+#define BL32_BASE			(PLAT_BL31_BASE + BL31_SIZE)
 #define BL32_LIMIT			TZDRAM_END
 
 /*******************************************************************************

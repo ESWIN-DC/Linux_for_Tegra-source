@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2020, NVIDIA CORPORATION. All rights reserved.
+ * Copyright (c) 2017-2021, NVIDIA CORPORATION. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,6 +30,8 @@
 #define __GST_NVARGUSCAMERASRC_H__
 
 #include <gst/gst.h>
+#include <condition_variable>
+#include <chrono>
 
 #include "nvbufsurface.h"
 #include "nvbuf_utils.h"
@@ -151,6 +153,7 @@ struct _GstNvArgusCameraSrc
   gboolean timeout_complete;
 
   NvBufferTransformParams transform_params;
+  NvBufferColorFormat cap_pix_fmt;
 
   GQueue *argus_buffers;
   GMutex argus_buffers_queue_lock;
@@ -162,6 +165,10 @@ struct _GstNvArgusCameraSrc
 
   GMutex eos_lock;
   GCond eos_cond;
+  GMutex queue_lock;
+
+  std::condition_variable cv;
+  std::mutex mtx;
 
   NvArgusCamControls controls;
   gboolean wbPropSet;
@@ -190,6 +197,9 @@ struct _GstNvArgusCameraSrc
   void *iEeSettings_ptr;
   void *iRequestSourceSettings_ptr;
   Argus::UniqueObj<Argus::EventQueue> queue;
+  Argus::UniqueObj<Argus::OutputStream> outputStream;
+  Argus::UniqueObj<Argus::OutputStreamSettings> streamSettings;
+  Argus::UniqueObj<Argus::Request> request;
   NvArgusFrameInfo *frameInfo;
 };
 

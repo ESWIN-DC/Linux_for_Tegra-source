@@ -1,11 +1,12 @@
 #
 # Copyright (c) 2015-2018, ARM Limited and Contributors. All rights reserved.
+# Copyright (c) 2021, NVIDIA Corporation. All rights reserved.
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
 
-TZDRAM_BASE			:= 0xF5C00000
-$(eval $(call add_define,TZDRAM_BASE))
+PLAT_BL31_BASE			:= 0xF5C00000
+$(eval $(call add_define,PLAT_BL31_BASE))
 
 PLATFORM_CLUSTER_COUNT		:= 1
 $(eval $(call add_define,PLATFORM_CLUSTER_COUNT))

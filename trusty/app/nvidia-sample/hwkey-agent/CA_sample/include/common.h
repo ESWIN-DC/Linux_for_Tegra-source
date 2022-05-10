@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020, NVIDIA Corporation. All Rights Reserved.
+ * Copyright (c) 2020-2021, NVIDIA Corporation. All Rights Reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -36,8 +36,10 @@
 
 #define TIPC_DEFAULT_NODE "/dev/trusty-ipc-dev0"
 #define TA_CRYPTO_SRV_CHAL "hwkey-agent.srv.crypto-srv"
+#define TA_RNG_SRV_CHAL "hwkey-agent.srv.rng-srv"
 
 #define CRYPTO_SRV_PAYLOAD_SIZE 2048
+#define RNG_SRV_DATA_SIZE 2048
 
 enum crypto_srv_cmd {
 	CRYPTO_SRV_CMD_ENCRYPT = 1,
@@ -50,6 +52,11 @@ typedef struct crypto_srv_cmd_msg {
 	uint32_t payload_len;
 	uint8_t payload[];		/* CRYPTO_SRV_PAYLOAD_SIZE */
 } crypto_srv_msg_t;
+
+typedef struct rng_srv_msg {
+	uint32_t rng_size;
+	uint8_t rng_data[RNG_SRV_DATA_SIZE];
+} rng_srv_msg_t;
 
 #endif /* __HWKEY_AGENT_APP_COMMON_H__ */
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2020, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2016-2021, NVIDIA CORPORATION.  All rights reserved.
  *
  * NVIDIA Corporation and its licensors retain all intellectual property
  * and proprietary rights in and to this software, related documentation
@@ -70,9 +70,9 @@ extern "C"
  */
 typedef enum
 {
-  /** buffer payload with HW memory handle for set of planes. */
+  /** buffer payload with hardware memory handle for set of planes. */
   NvBufferPayload_SurfArray,
-  /** buffer payload with HW memory handle for specific memory size. */
+  /** buffer payload with hardware memory handle for specific memory size. */
   NvBufferPayload_MemHandle,
 } NvBufferPayloadType;
 
@@ -221,6 +221,8 @@ typedef enum
   NvBufferColorFormat_NV16_10LE,
   /** BT.601 colorspace - Y/CbCr 4:4:4 multi-planar. */
   NvBufferColorFormat_NV24,
+  /** BT.601 colorspace - Y/CrCb 4:4:4 10-bit multi-planar. */
+  NvBufferColorFormat_NV24_10LE,
   /** BT.601_ER colorspace - Y/CbCr 4:2:2 multi-planar. */
   NvBufferColorFormat_NV16_ER,
   /** BT.601_ER colorspace - Y/CbCr 4:4:4 multi-planar. */
@@ -317,6 +319,8 @@ typedef enum {
   NVBUFFER_COMPOSITE  = 1,
   /** flag to set for blending. */
   NVBUFFER_BLEND      = 1 << 1,
+  /** composition flag to set filter type. */
+  NVBUFFER_COMPOSITE_FILTER  = 1 << 2,
 } NvBufferComposite_Flag;
 
 /**
@@ -491,6 +495,8 @@ typedef struct _NvBufferCompositeParams
   uint32_t composite_flag;
   /** number of the input buffers to be composited. */
   uint32_t input_buf_count;
+  /** filters to use for composition. */
+  NvBufferTransform_Filter composite_filter[MAX_COMPOSITE_FRAME];
   /** alpha values of input buffers for the blending. */
   float dst_comp_rect_alpha[MAX_COMPOSITE_FRAME];
   /** source rectangle coordinates of input buffers for composition. */
@@ -536,9 +542,9 @@ typedef struct _NvBufferTransformParams
 int NvBufferSyncObjWait (NvBufferSyncObjParams *syncobj_params, unsigned int timeout);
 
 /**
-* This method can be used to get HW Buffer struct size.
+* This method can be used to get hardware Buffer struct size.
 *
-* @returns HW Buffer struct size.
+* @returns hardware Buffer struct size.
 */
 int NvBufferGetSize (void);
 
@@ -568,7 +574,7 @@ EGLImageKHR NvEGLImageFromFd (EGLDisplay display, int dmabuf_fd);
 int NvDestroyEGLImage (EGLDisplay display, EGLImageKHR eglImage);
 
 /**
- * Allocates a HW buffer (deprecated).
+ * Allocates a hardware buffer (deprecated).
  *
  * @deprecated Use NvBufferCreateEx() instead.
  * @param[out] dmabuf_fd    Returns the DMABUF FD of the hardware buffer.
@@ -633,7 +639,7 @@ int NvBufferGetParams (int dmabuf_fd, NvBufferParams *params);
 int NvBufferGetParamsEx (int dmabuf_fd, NvBufferParamsEx *exparams);
 
 /**
-* Destroys a HW buffer.
+* Destroys a hardware buffer.
 * @param[in] dmabuf_fd Specifies the `dmabuf_fd` `hw_buffer` to destroy.
 *
 * @returns 0 for success, -1 for failure.
@@ -659,7 +665,7 @@ int ExtractFdFromNvBuffer (void *nvbuf, int *dmabuf_fd);
 int NvReleaseFd (int dmabuf_fd);
 
 /**
-* Syncs the HW memory cache for the CPU.
+* Syncs the hardware memory cache for the CPU.
 *
 * \sa NvBufferMemMap for the purpose of the function
 *
@@ -668,9 +674,22 @@ int NvReleaseFd (int dmabuf_fd);
 * @param[in] pVirtAddr Virtual Address pointer of the memory-mapped plane.
 *
 * @returns 0 for success, -1 for failure.
-
 */
 int NvBufferMemSyncForCpu (int dmabuf_fd, unsigned int plane, void **pVirtAddr);
+
+/**
+* Syncs the hardware memory cache for the CPU, API to be used for another process.
+*
+* \sa NvBufferMemMapEx for the purpose of the function
+*
+* @param[in] dmabuf_fd DMABUF FD of buffer.
+* @param[in] exparams extended parameters for a hardware buffer.
+* @param[in] plane video frame plane.
+* @param[in] pVirtAddr Virtual Address pointer of the memory-mapped plane.
+*
+* @returns 0 for success, -1 for failure.
+*/
+int NvBufferMemSyncForCpuEx (int dmabuf_fd, NvBufferParamsEx *exparams, unsigned int plane, void **pVirtAddr);
 
 /**
 * Syncs the hardware memory cache for the device.
@@ -684,6 +703,20 @@ int NvBufferMemSyncForCpu (int dmabuf_fd, unsigned int plane, void **pVirtAddr);
 * @returns 0 for success, -1 for failure.
 */
 int NvBufferMemSyncForDevice (int dmabuf_fd, unsigned int plane, void **pVirtAddr);
+
+/**
+* Syncs the hardware memory cache for the device, API to be used for another process.
+*
+* \sa NvBufferMemMapEx for the purpose of the function
+*
+* @param[in] dmabuf_fd DMABUF FD of buffer.
+* @param[in] exparams extended parameters for a hardware buffer.
+* @param[in] plane video frame plane.
+* @param[in] pVirtAddr Virtual Address pointer of the memory-mapped plane.
+*
+* @returns 0 for success, -1 for failure.
+*/
+int NvBufferMemSyncForDeviceEx (int dmabuf_fd, NvBufferParamsEx *exparams, unsigned int plane, void **pVirtAddr);
 
 /**
 * Gets the memory-mapped virtual address of the plane.
@@ -709,6 +742,30 @@ int NvBufferMemSyncForDevice (int dmabuf_fd, unsigned int plane, void **pVirtAdd
 int NvBufferMemMap (int dmabuf_fd, unsigned int plane, NvBufferMemFlags memflag, void **pVirtAddr);
 
 /**
+* Gets the memory-mapped virtual address of the plane, API to be used for another process.
+*
+* The client must call NvBufferMemSyncForCpuEx() with the virtual address returned
+* by this function before accessing the mapped memory in CPU in another process.
+*
+* After memory mapping is complete, mapped memory modification
+* must be coordinated between the CPU and hardware device as
+* follows:
+* - CPU: If the CPU modifies any mapped memory, the client must call
+*   NvBufferMemSyncForDeviceEx() before any hardware device accesses the memory.
+* - Hardware device: If the mapped memory is modified by any hardware device,
+*   the client must call NvBufferMemSyncForCpuEx() before CPU accesses the memory.
+*
+* @param[in] dmabuf_fd DMABUF FD of buffer.
+* @param[in] exparams extended parameters for a hardware buffer.
+* @param[in] plane video frame plane.(Applies to @ref NvBufferPayload_SurfArray.)
+* @param[in] memflag NvBuffer memory flag.
+* @param[out] pVirtAddr Virtual Address pointer of the memory-mapped plane.
+*
+* @returns 0 for success, -1 for failure.
+*/
+int NvBufferMemMapEx (int dmabuf_fd, NvBufferParamsEx *exparams, unsigned int plane, NvBufferMemFlags memflag, void **pVirtAddr);
+
+/**
 * Unmaps the mapped virtual address of the plane.
 *
 * If the following conditions are both true, the client must call
@@ -724,6 +781,24 @@ int NvBufferMemMap (int dmabuf_fd, unsigned int plane, NvBufferMemFlags memflag,
 * @returns 0 for success, -1 for failure.
 */
 int NvBufferMemUnMap (int dmabuf_fd, unsigned int plane, void **pVirtAddr);
+
+/**
+* Unmaps the mapped virtual address of the plane, API to be used for another process.
+*
+* If the following conditions are both true, the client must call
+* NvBufferMemSyncForDeviceEx() before unmapping the memory in another process:
+* - Mapped memory was modified by the CPU.
+* - Mapped memory will be accessed by a hardware device.
+*
+* @param[in] dmabuf_fd  DMABUF FD of the buffer.
+* @param[in] exparams extended parameters for a hardware buffer.
+* @param[in] plane      Video frame plane. Applies to
+*                       @ref NvBufferPayload_SurfArray.
+* @param[in] pVirtAddr  Virtual address pointer to the memory-mapped plane.
+*
+* @returns 0 for success, -1 for failure.
+*/
+int NvBufferMemUnMapEx (int dmabuf_fd, NvBufferParamsEx *exparams, unsigned int plane, void **pVirtAddr);
 
 /**
 * Copies the NvBuffer plane contents to a raw buffer plane.
@@ -773,6 +848,19 @@ void NvBufferSessionDestroy(NvBufferSession session);
  * @return 0 for sucess, -1 for failure.
  */
 int NvBufferTransform (int src_dmabuf_fd, int dst_dmabuf_fd, NvBufferTransformParams *transform_params);
+
+/**
+ * Transforms one DMA buffer to another DMA buffer, API to be used for another process.
+ * This function can support transforms for copying, scaling, fliping, rotating, and cropping.
+ * @param[in] src_dmabuf_fd DMABUF FD of source buffer
+ * @param[in] input_params extended input parameters for a hardware buffer.
+ * @param[in] dst_dmabuf_fd DMABUF FD of destination buffer
+ * @param[in] output_params extended output parameters for a hardware buffer.
+ * @param[in] transform_params transform parameters
+ *
+ * @return 0 for sucess, -1 for failure.
+ */
+int NvBufferTransformEx (int src_dmabuf_fd, NvBufferParamsEx *input_params, int dst_dmabuf_fd, NvBufferParamsEx *output_params, NvBufferTransformParams *transform_params);
 
 /**
  * Transforms one DMA buffer to another DMA buffer asyncroniously (non-blocking).

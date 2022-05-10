@@ -3,7 +3,7 @@
  *     Authors Ayaka <ayaka@soulik.info>
  * Copyright (C) 2017 Collabora Ltd.
  *     Author: Nicolas Dufresne <nicolas.dufresne@collabora.com>
- * Copyright (c) 2018-2020, NVIDIA CORPORATION. All rights reserved.
+ * Copyright (c) 2018-2021, NVIDIA CORPORATION. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -49,7 +49,7 @@ GST_DEBUG_CATEGORY_STATIC (gst_v4l2_video_enc_debug);
     "video/x-raw(memory:NVMM), " \
     "width = (gint) [ 1, MAX ], " \
     "height = (gint) [ 1, MAX ], " \
-    "format = (string) { I420, NV12, P010_10LE}, " \
+    "format = (string) { I420, NV12, P010_10LE, NV24}, " \
     "framerate = (fraction) [ 0, MAX ];"
 
 static GstStaticCaps sink_template_caps =
@@ -126,7 +126,9 @@ enum
   PROP_MEASURE_LATENCY,
   PROP_RC_ENABLE,
   PROP_MAX_PERF,
-  PROP_IDR_FRAME_INTERVAL
+  PROP_IDR_FRAME_INTERVAL,
+  PROP_FORCE_INTRA,
+  PROP_FORCE_IDR
 #endif
 };
 
@@ -322,6 +324,14 @@ gst_v4l2_video_enc_set_property_cuvid (GObject * object,
     case PROP_CUDAENC_GPU_ID:
       self->cudaenc_gpu_id = g_value_get_uint (value);
       break;
+
+    case PROP_FORCE_IDR:
+      self->force_idr = g_value_get_boolean (value);
+      break;
+
+    case PROP_FORCE_INTRA:
+      self->force_intra = g_value_get_boolean (value);
+      break;
 #endif
 
       /* By default, only set on output */
@@ -449,6 +459,14 @@ gst_v4l2_video_enc_get_property_cuvid (GObject * object,
 
     case PROP_CUDAENC_GPU_ID:
       g_value_set_uint(value, self->cudaenc_gpu_id);
+      break;
+
+    case PROP_FORCE_IDR:
+      g_value_set_boolean (value, self->force_idr);
+      break;
+
+    case PROP_FORCE_INTRA:
+      g_value_set_boolean (value, self->force_intra);
       break;
 #endif
 
@@ -1093,6 +1111,7 @@ gst_v4l2_video_enc_get_oldest_frame (GstVideoEncoder * encoder)
   return frame;
 }
 #endif
+
 static void
 gst_v4l2_video_enc_loop (GstVideoEncoder * encoder)
 {
@@ -1116,6 +1135,24 @@ gst_v4l2_video_enc_loop (GstVideoEncoder * encoder)
     goto beach;
   }
 
+#ifdef USE_V4L2_TARGET_NV
+  if (is_cuvid == TRUE && self->force_idr) {
+      if (!set_v4l2_video_mpeg_class (self->v4l2output,
+                  V4L2_CID_MPEG_VIDEOENC_FORCE_IDR_FRAME, 1)) {
+          g_print ("S_EXT_CTRLS for FORCE_IDR_FRAME failed\n");
+          return;
+      }
+      self->force_idr = FALSE;
+  }
+  if (is_cuvid == TRUE && self->force_intra) {
+      if (!set_v4l2_video_mpeg_class (self->v4l2output,
+                  V4L2_CID_MPEG_VIDEOENC_FORCE_INTRA_FRAME, 1)) {
+          g_print ("S_EXT_CTRLS for FORCE_INTRA_FRAME failed\n");
+          return;
+      }
+      self->force_intra = FALSE;
+  }
+#endif
 
   /* FIXME Check if buffer isn't the last one here */
 
@@ -1676,6 +1713,20 @@ gst_v4l2_video_enc_class_init (GstV4l2VideoEncClass * klass)
             0,
             G_MAXUINT, DEFAULT_CUDAENC_GPU_ID,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_READY));
+
+    g_object_class_install_property (gobject_class, PROP_FORCE_IDR,
+        g_param_spec_boolean ("force-idr",
+            "Force an IDR frame",
+            "Force an IDR frame",
+            FALSE, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
+            GST_PARAM_MUTABLE_READY));
+
+    g_object_class_install_property (gobject_class, PROP_FORCE_INTRA,
+        g_param_spec_boolean ("force-intra",
+            "Force an INTRA frame",
+            "Force an INTRA frame",
+            FALSE, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
+            GST_PARAM_MUTABLE_READY));
 
   } else if (is_cuvid == FALSE) {
     g_object_class_install_property (gobject_class, PROP_IDR_FRAME_INTERVAL,

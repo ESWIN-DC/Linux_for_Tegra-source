@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0 */
 /*
- * Copyright 2013-2020, NVIDIA CORPORATION.
+ * Copyright 2013-2021, NVIDIA CORPORATION.
  */
 
 #ifndef _TEGRA186_COMMON_H_
@@ -41,6 +41,9 @@
  * fdt_addr_r simply shouldn't overlap anything else. Choosing 32M allows for
  *   the compressed kernel to be up to 16M too.
  *
+ * fdtoverlay_addr_r is used for DTB overlays from extlinux.conf. It's placed
+ *   just above pxefile_addr_r.
+ *
  * ramdisk_addr_r simply shouldn't overlap anything else. Choosing 33M allows
  *   for the FDT/DTB to be up to 1M, which is hopefully plenty.
  */
@@ -48,6 +51,7 @@
 #define MEM_LAYOUT_ENV_SETTINGS \
 	"scriptaddr=0x90000000\0" \
 	"pxefile_addr_r=0x90100000\0" \
+	"fdtoverlay_addr_r=0x90200000\0" \
 	"kernel_addr_r=" __stringify(CONFIG_LOADADDR) "\0" \
 	"fdt_addr_r=0x82000000\0" \
 	"ramdisk_addr_r=0x82100000\0" \
@@ -58,21 +62,23 @@
 	"fdt_copy_prop_paths=" \
 		"/bpmp/carveout-start:" \
 		"/bpmp/carveout-size:" \
-		"/chosen/bootargs:" \
 		"/chosen/nvidia,bluetooth-mac:" \
 		"/chosen/nvidia,ether-mac:" \
 		"/chosen/nvidia,wifi-mac:" \
 		"/chosen/ecid:" \
 		"/chosen/linux,initrd-start:" \
 		"/chosen/linux,initrd-end:" \
+		"/reserved-memory/fb0_carveout/reg:" \
+		"/reserved-memory/fb1_carveout/reg:" \
+		"/reserved-memory/fb2_carveout/reg:" \
+		"/reserved-memory/ramoops_carveout/alignment:" \
+		"/reserved-memory/ramoops_carveout/alloc-ranges:" \
+		"/reserved-memory/ramoops_carveout/size:" \
+		"/reserved-memory/vpr-carveout/alignment:" \
+		"/reserved-memory/vpr-carveout/alloc-ranges:" \
+		"/reserved-memory/vpr-carveout/size:" \
 		"/serial-number:" \
-		"/trusty/status\0" \
-	"fdt_del_copy_node_paths=" \
-		"/reserved-memory/fb0_carveout:" \
-		"/reserved-memory/fb1_carveout:" \
-		"/reserved-memory/fb2_carveout:" \
-		"/reserved-memory/ramoops_carveout:" \
-		"/reserved-memory/vpr-carveout\0"
+		"/trusty/status\0"
 
 #define ROOTFS_AB_SELECT \
 	"check_rootfs_ab="                                              \

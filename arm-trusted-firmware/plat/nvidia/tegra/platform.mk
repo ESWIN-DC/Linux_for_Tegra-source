@@ -1,5 +1,6 @@
 #
 # Copyright (c) 2015-2018, ARM Limited and Contributors. All rights reserved.
+# Copyright (c) 2015-2021, NVIDIA CORPORATION. All rights reserved.
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
@@ -52,7 +53,7 @@ RELOCATE_BL32_IMAGE		?= 0
 include plat/nvidia/tegra/common/tegra_common.mk
 include ${SOC_DIR}/platform_${TARGET_SOC}.mk
 
-$(eval $(call add_define,TZDRAM_BASE))
+$(eval $(call add_define,PLAT_BL31_BASE))
 $(eval $(call add_define,ENABLE_WDT_LEGACY_FIQ_HANDLING))
 $(eval $(call add_define,RELOCATE_BL32_IMAGE))
 

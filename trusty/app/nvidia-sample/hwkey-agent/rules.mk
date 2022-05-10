@@ -1,4 +1,4 @@
-# Copyright (c) 2020, NVIDIA CORPORATION. All rights reserved
+# Copyright (c) 2020-2021, NVIDIA CORPORATION. All rights reserved
 #
 # Permission is hereby granted, free of charge, to any person obtaining
 # a copy of this software and associated documentation files
@@ -39,7 +39,9 @@ MODULE_SRCS += \
 	$(LOCAL_DIR)/manifest.c \
 	$(LOCAL_DIR)/platform/fuse/fuse.c \
 	$(LOCAL_DIR)/platform/tegra_se/tegra_se.c \
-	$(LOCAL_DIR)/platform/tegra_se/tegra_se_aes.c
+	$(LOCAL_DIR)/platform/tegra_se/tegra_se_aes.c \
+	$(LOCAL_DIR)/platform/tegra_se/tegra_se_rng1.c \
+	$(LOCAL_DIR)/rng_srv.c
 
 MODULE_DEPS += \
 	app/trusty \
@@ -55,6 +57,10 @@ MODULE_CFLAGS += -DMIN_HEAP_SIZE=16384
 # SE register range
 MODULE_CFLAGS += -DTEGRA_SE_BASE=0x03AC0000
 MODULE_CFLAGS += -DTEGRA_SE_SIZE=0x2000
+
+# SE RNG1 register range
+MODULE_CFLAGS += -DTEGRA_SE_RNG1_BASE=0x03AE0000
+MODULE_CFLAGS += -DTEGRA_SE_RNG1_SIZE=0x10000
 
 # fuse bank range
 MODULE_CFLAGS += -DTEGRA_FUSE_BASE=0x3820000

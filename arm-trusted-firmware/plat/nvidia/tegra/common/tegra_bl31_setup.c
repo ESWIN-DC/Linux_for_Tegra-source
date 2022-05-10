@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2015-2018, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2021, NVIDIA Corporation. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -365,7 +366,7 @@ int32_t bl31_check_ns_address(uint64_t base, uint64_t size_in_bytes)
 {
 
 	uint64_t end = base + size_in_bytes - ULL(1);
-	uint64_t tzdram_end = (uint64_t)TZDRAM_BASE + (uint64_t)TZDRAM_SIZE;
+	uint64_t tzdram_end = (uint64_t)PLAT_BL31_BASE + (uint64_t)TZDRAM_SIZE;
 	uint64_t bl31_phys_base = tegra_get_bl31_phys_base();
 	int32_t ret = 0;
 

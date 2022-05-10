@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020, NVIDIA Corporation. All Rights Reserved.
+ * Copyright (c) 2020-2021, NVIDIA Corporation. All Rights Reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -26,6 +26,7 @@
 #include <key_mgnt.h>
 #include <stdio.h>
 #include <trusty_std.h>
+#include <tegra_se_rng1.h>
 
 /*
  * @brief hwkey-agent TA
@@ -42,6 +43,12 @@ int main(void)
 	rc = key_mgnt_processing();
 	if (rc != NO_ERROR) {
 		TLOGE("%s: Failed to verify or extract EKB (%d).\n", __func__, rc);
+		return rc;
+	}
+
+	rc = se_rng1_init();
+	if (rc != NO_ERROR) {
+		TLOGE("%s: Failed to init SE RNG1 module.\n", __func__);
 		return rc;
 	}
 

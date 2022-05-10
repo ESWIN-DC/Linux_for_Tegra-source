@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020, NVIDIA Corporation. All Rights Reserved.
+ * Copyright (c) 2020-2021, NVIDIA Corporation. All Rights Reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -25,6 +25,7 @@
 #include <crypto_service.h>
 #include <err.h>
 #include <get_key_srv.h>
+#include <rng_srv.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <trusty_std.h>
@@ -65,6 +66,7 @@ typedef struct chan_state {
 static void common_port_handler(const uevent_t *evt);
 static void crypto_srv_chan_handler(const uevent_t *evt);
 static void get_key_srv_chan_handler(const uevent_t *evt);
+static void rng_srv_chan_handler(const uevent_t *evt);
 
 static const struct tipc_srv _services[] =
 {
@@ -83,6 +85,15 @@ static const struct tipc_srv _services[] =
 		.port_flags = IPC_PORT_ALLOW_TA_CONNECT,
 		.port_handler = common_port_handler,
 		.chan_handler = get_key_srv_chan_handler,
+	},
+	{
+		.name = SRV_NAME("rng-srv"),
+		.msg_num = 1,
+		.msg_size = MAX_PORT_BUF_SIZE,
+		.port_flags = IPC_PORT_ALLOW_TA_CONNECT |
+			      IPC_PORT_ALLOW_NS_CONNECT,
+		.port_handler = common_port_handler,
+		.chan_handler = rng_srv_chan_handler,
 	},
 };
 
@@ -355,6 +366,69 @@ static int get_key_srv_handle_msg(const uevent_t *evt)
 	return NO_ERROR;
 }
 
+static int rng_srv_handle_msg(const uevent_t *evt)
+{
+	int rc;
+	ipc_msg_t msg;
+	ipc_msg_info_t msg_info;
+	rng_srv_msg_t rng_msg;
+
+	rc = get_msg(evt->handle, &msg_info);
+	if (rc == ERR_NO_MSG)
+		return rc; /* no new messages */
+
+	if (rc != NO_ERROR) {
+		TLOGI("failed (%d) to get_msg for chan (%d)\n",
+		      rc, evt->handle);
+		return rc;
+	}
+
+	iovec_t iov = {
+		.base = &rng_msg,
+		.len = sizeof(rng_msg),
+	};
+
+	/*
+	 * Handle all messages in queue
+	 * init message structure
+	 */
+	msg.num_iov = 1;
+	msg.iov = &iov;
+	msg.num_handles = 0;
+	msg.handles  = NULL;
+
+	/* Read msg content */
+	rc = read_msg(evt->handle, msg_info.id, 0, &msg);
+	if (rc < 0) {
+		TLOGI("failed (%d) to read_msg for chan (%d)\n",
+		      rc, evt->handle);
+		return rc;
+	}
+
+	rng_srv_process_req(msg.iov);
+
+	/* And send it back */
+	rc = send_msg(evt->handle, &msg);
+	if (rc == ERR_NOT_ENOUGH_BUFFER)
+		rc = wait_to_send(evt->handle, &msg);
+
+	if (rc < 0) {
+		TLOGI("failed (%d) to send_msg for chan (%d)\n",
+		      rc, evt->handle);
+		return rc;
+	}
+
+	/* Retire original message */
+	rc = put_msg(evt->handle, msg_info.id);
+	if (rc != NO_ERROR) {
+		TLOGI("failed (%d) to put_msg for chan (%d)\n",
+		      rc, evt->handle);
+		return rc;
+	}
+
+	return NO_ERROR;
+}
+
 /*
  *  service channel handler
  */
@@ -392,6 +466,30 @@ static void get_key_srv_chan_handler(const uevent_t *evt)
 
 	if (evt->event & (IPC_HANDLE_POLL_MSG)) {
 		if (get_key_srv_handle_msg(evt) != 0) {
+			TLOGI("error event (0x%x) for chan (%d)\n",
+			      evt->event, evt->handle);
+			goto close_it;
+		}
+	}
+
+	return;
+
+close_it:
+	chan_st = containerof(evt->cookie, struct chan_state, handler);
+	free(chan_st);
+	close(evt->handle);
+}
+
+static void rng_srv_chan_handler(const uevent_t *evt)
+{
+	struct chan_state *chan_st;
+
+	if ((evt->event & IPC_HANDLE_POLL_ERROR)
+	    || (evt->event & IPC_HANDLE_POLL_HUP))
+		goto close_it;
+
+	if (evt->event & (IPC_HANDLE_POLL_MSG)) {
+		if (rng_srv_handle_msg(evt) != 0) {
 			TLOGI("error event (0x%x) for chan (%d)\n",
 			      evt->event, evt->handle);
 			goto close_it;

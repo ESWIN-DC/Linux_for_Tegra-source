@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020, NVIDIA CORPORATION. All rights reserved
+ * Copyright (c) 2020-2021, NVIDIA CORPORATION. All rights reserved
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files
@@ -47,5 +47,8 @@ trusty_app_manifest_t TRUSTY_APP_MANIFEST_ATTRS trusty_app_manifest =
 
 		/* fuse mapping */
 		TRUSTY_APP_CONFIG_MAP_MEM(2, TEGRA_FUSE_BASE, TEGRA_FUSE_SIZE),
+
+		/* SE RNG1 register mapping */
+		TRUSTY_APP_CONFIG_MAP_MEM(3, TEGRA_SE_RNG1_BASE, TEGRA_SE_RNG1_SIZE),
 	},
 };
