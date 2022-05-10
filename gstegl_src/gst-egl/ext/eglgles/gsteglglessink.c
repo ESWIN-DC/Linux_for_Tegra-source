@@ -382,8 +382,6 @@ gst_egl_image_buffer_pool_set_config (GstBufferPool * bpool,
   if (!gst_buffer_pool_config_get_allocator (config, &pool->allocator,
           &pool->params))
     return FALSE;
-  if (pool->allocator)
-    gst_object_ref (pool->allocator);
 
   pool->add_metavideo =
       gst_buffer_pool_config_has_option (config,
@@ -2471,8 +2469,10 @@ gst_eglglessink_propose_allocation (GstBaseSink * bsink, GstQuery * query)
   /* First the default allocator */
   if (!gst_egl_image_memory_is_mappable ()) {
     allocator = gst_allocator_find (NULL);
-    gst_query_add_allocation_param (query, allocator, &params);
-    gst_object_unref (allocator);
+    if (allocator) {
+      gst_query_add_allocation_param (query, allocator, &params);
+      gst_object_unref (allocator);
+    }
   }
 
   allocator = gst_egl_image_allocator_obtain ();
@@ -2884,6 +2884,9 @@ gst_eglglessink_close (GstEglGlesSink * eglglessink)
     }
   }
 #endif
+
+  if (GST_OBJECT_REFCOUNT(eglglessink))
+     gst_object_unref (eglglessink);
 
   return TRUE;
 }

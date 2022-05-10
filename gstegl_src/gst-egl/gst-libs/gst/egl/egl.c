@@ -269,13 +269,10 @@ gst_egl_image_allocator_init_instance (gpointer data)
 GstAllocator *
 gst_egl_image_allocator_obtain (void)
 {
-  static GOnce once = G_ONCE_INIT;
+  GstAllocator *allocator;
 
-  g_once (&once, gst_egl_image_allocator_init_instance, NULL);
-
-  g_return_val_if_fail (once.retval != NULL, NULL);
-
-  return GST_ALLOCATOR (g_object_ref (once.retval));
+  allocator = gst_egl_image_allocator_init_instance(NULL);
+  return GST_ALLOCATOR (g_object_ref (allocator));
 }
 
 GstMemory *
