@@ -30,8 +30,10 @@ CFLAGS := -fPIC \
     -DNV_VIDEO_SINKS_HAS_EGL \
     -DNV_VIDEO_SINKS_HAS_GL \
     -DNV_VIDEO_SINKS_HAS_NV3DSINK \
-    -DNV_VIDEO_SINKS_HAS_X11 \
-    -DIS_DESKTOP
+    -DNV_VIDEO_SINKS_HAS_X11
+
+# 	disable in jetson
+#   -DIS_DESKTOP
 
 NEEDS_CUDA:=1
 
@@ -43,27 +45,40 @@ LDFLAGS:= -shared
 
 CAN_PUBLIC_LINK:=1
 
-INC_PATHS =: \
-	common \
-	common/egl \
-	common/renderer \
-	common/x11 \
-	/usr/local/include/gstreamer-1.0 \
-	../../../3rdparty/gst/gst-nveglglessink/gst-libs/ \
-	../../../nvutils/nvbufsurface/ \
-	../
+INC_PATHS = \
+	-Icommon \
+	-Icommon/egl \
+	-Icommon/renderer \
+	-Icommon/x11 \
+	-I../../../3rdparty/gst/gst-nveglglessink/gst-libs/ \
+	-I../../../nvutils/nvbufsurface/ \
+	-I../ \
+	-I/usr/local/cuda-10.2/targets/aarch64-linux/include \
+	-I../gstegl_src/gst-egl/gst-libs/
 
 PKGS := glib-2.0 \
 	gstreamer-1.0 \
 	gstreamer-base-1.0 \
 	gstreamer-video-1.0
 
-CFLAGS += `pkg-config --cflags $(PKGS)`
+CFLAGS += `pkg-config --cflags $(PKGS)` $(INC_PATHS)
 
-LDFLAGS = -Wl,--no-undefined -L/usr/lib/aarch64-linux-gnu/tegra
+LDFLAGS = -Wl,--no-undefined -L/usr/lib/aarch64-linux-gnu/tegra  \
+	-L/usr/local/cuda-10.2/targets/aarch64-linux/lib/ \
 
-LIBS = -lnvbufsurface -lGLESv2 -lEGL -lX11 -lm -lcuda -lcudart
+LIBS = -lnvbufsurface -lGLESv2 -lEGL -lX11 -lm -lcuda -lcudart_static -ldl -lrt -lnvbuf_utils
 
 LIBS += `pkg-config --libs $(PKGS)`
 
-include ../../../deepstream/sdk/Rules.mk
+# include ../../../deepstream/sdk/Rules.mk
+
+all: $(TARGET_NAME)
+
+OBJS := $(SRCS:.c=.o)
+
+libgstnvvideosinks.so: $(OBJS)
+	@echo "Linking: $@"
+	$(CC) -shared -o $@ $^ $(CFLAGS) $(LDFLAGS) $(LIBS)
+
+clean:
+	$(RM) $(OBJS) libgstnvvideosinks.so
