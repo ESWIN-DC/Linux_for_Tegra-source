@@ -852,7 +852,8 @@ static gboolean gst_nv_v4l2_camera_set_caps (GstBaseSrc *base, GstCaps *caps)
 
   allocator->owner = src;
   config = gst_buffer_pool_get_config (src->pool);
-  gst_buffer_pool_config_set_allocator (config, GST_ALLOCATOR (allocator), NULL);
+  gst_buffer_pool_config_set_allocator(config, GST_ALLOCATOR(allocator), NULL);
+  gst_object_unref(allocator);
 
   if (src->buf_api)
     gst_buffer_pool_config_set_params (config, src->outcaps, sizeof(NvBufSurface), src->cap_buf, src->cap_buf);
