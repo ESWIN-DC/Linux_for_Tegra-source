@@ -2757,13 +2757,16 @@ gst_nvvconv_transform_caps (GstBaseTransform * btrans,
       gst_caps_features_free (ift);
     }
 
+    // leak
     tmp2 = gst_caps_intersect_full (filter, tmp1, GST_CAPS_INTERSECT_FIRST);
     gst_caps_unref (tmp1);
     tmp1 = tmp2;
   }
 
-  if (gst_caps_is_empty(tmp1))
+  if (gst_caps_is_empty(tmp1)) {
+    gst_caps_unref (tmp1);
     ret = gst_caps_copy(filter);
+  }
   else
     ret = tmp1;
 
