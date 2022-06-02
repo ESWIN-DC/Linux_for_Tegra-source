@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012-2014 Travis Geiselbrecht
- * Copyright (c) 2017-2018, NVIDIA Corporation. All rights reserved
+ * Copyright (c) 2017-2021, NVIDIA Corporation. All rights reserved
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files
@@ -650,9 +650,15 @@ status_t arm_gic_sim_irq_handler(u_int irq)
 	spin_lock_save(&gicd_lock, &state, GICD_LOCK_FLAGS);
 	if ((h = get_int_handler(irq, cpu))->handler != NULL) {
 		if (h->handler(h->arg) == INT_RESCHEDULE) {
-			    spin_unlock_restore(&gicd_lock, state, GICD_LOCK_FLAGS);
-			    thread_preempt();
-			    spin_lock_save(&gicd_lock, &state, GICD_LOCK_FLAGS);
+			/* Do not preempt this thread now because this function
+			 * gets called by hypervisor from its ISR routine.
+			 * Scheduling other threads here would lead to ISR
+			 * taking too long, sometimes 10s of milliseconds */
+#if 0
+			spin_unlock_restore(&gicd_lock, state, GICD_LOCK_FLAGS);
+			thread_preempt();
+			spin_lock_save(&gicd_lock, &state, GICD_LOCK_FLAGS);
+#endif
 		}
 	} else {
 		TRACEF("interrupt handler not found. irq: %u\n", irq);

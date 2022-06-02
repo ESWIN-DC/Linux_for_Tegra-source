@@ -20,8 +20,26 @@
  * THE SOFTWARE.
  */
 
+/**
+ * @file
+ * <b>Specifies structures that define the interface to the SE hardware
+ *   random number generator (SE RNG1)</b>
+ *
+ * @b Description: This file specifies structures used to interface with
+ *   the Jetson security engine (SE) hardware implementation of
+ *   the NIST-SP 800-108 counter-mode key definition functions (KDFs).
+ */
+
 #ifndef __TEGRA_SE_RNG1_H__
 #define __TEGRA_SE_RNG1_H__
+
+/**
+ * @defgroup  trusty_hardware_generator_group  Hardware Random Number Generator Function
+ * Specifies an API for NIST 800-108 key definition functions.
+ *
+ * @ingroup trusty_key_generation_group
+ * @{
+ */
 
 /*
  * @brief Initialize the SE RNG1 module
@@ -39,5 +57,7 @@ int se_rng1_init(void);
  * @return NO_ERROR if successful
  */
 int se_rng1_get_random(uint8_t *data_buf, uint32_t data_len);
+
+/** @} */
 
 #endif /* __TEGRA_SE_RNG1_H__ */

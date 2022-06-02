@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014-2019, NVIDIA CORPORATION. All rights reserved.
+ * Copyright (c) 2014-2021, NVIDIA CORPORATION. All rights reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -1818,6 +1818,7 @@ capture_init_params (void)
   app->ee_mode = NVGST_DEFAULT_EE_MODE;
   app->ee_strength = NVGST_DEFAULT_EE_STRENGTH;
   app->tnr_strength = NVGST_DEFAULT_TNR_STRENGTH;
+  app->framerate = NVGST_DEFAULT_CAPTURE_FPS;
 
   /* Automation initialization */
   app->aut.automate = NVGST_DEFAULT_AUTOMATION_MODE;
@@ -2281,7 +2282,7 @@ create_csi_cap_bin (void)
   caps =
     gst_caps_new_simple ("video/x-raw", "format", G_TYPE_STRING, str_color,
         "width", G_TYPE_INT, width, "height", G_TYPE_INT, height, "framerate",
-        GST_TYPE_FRACTION, NVGST_DEFAULT_CAPTURE_FPS, 1, NULL);
+        GST_TYPE_FRACTION, app->framerate, 1, NULL);
 
   feature = gst_caps_features_new ("memory:NVMM", NULL);
   gst_caps_set_features (caps, 0, feature);
@@ -4416,6 +4417,9 @@ main (int argc, char *argv[])
     ,
     {"sensor-mode", 0, 0, G_OPTION_ARG_INT, &app->sensor_mode,
         "Camera Sensor Mode value", NULL}
+    ,
+    {"framerate", 0, 0, G_OPTION_ARG_INT, &app->framerate,
+        "FrameRate of sensor mode (use with --framerate)", NULL}
     ,
     {"exposuretimerange", 0, 0, G_OPTION_ARG_CALLBACK, parse_spec,
         "Property to adjust exposure time range in nanoseconds"

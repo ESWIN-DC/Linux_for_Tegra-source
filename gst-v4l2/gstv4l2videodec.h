@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2014 Collabora Ltd.
  *     Author: Nicolas Dufresne <nicolas.dufresne@collabora.co.uk>
- * Copyright (c) 2018-2019, NVIDIA CORPORATION. All rights reserved.
+ * Copyright (c) 2018-2021, NVIDIA CORPORATION. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -85,6 +85,9 @@ struct _GstV4l2VideoDec
   guint32 cudadec_mem_type;
   guint32 cudadec_gpu_id;
   guint32 cudadec_num_surfaces;
+  gboolean cudadec_low_latency;
+  gdouble rate;
+  guint32 cap_buf_dynamic_allocation;
 #endif
 };
 

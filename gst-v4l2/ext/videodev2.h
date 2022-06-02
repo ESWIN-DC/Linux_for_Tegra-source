@@ -2,6 +2,7 @@
  *  Video for Linux Two header file
  *
  *  Copyright (C) 1999-2012 the contributors
+ *  Copyright (c) 2021, NVIDIA CORPORATION. All rights reserved
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -67,7 +68,18 @@
  * Common stuff for both V4L1 and V4L2
  * Moved from videodev.h
  */
+#ifdef USE_V4L2_TARGET_NV
+/*
+ * As video decoder base class has to queue all the decoded frames
+ * between IDR interval for reverse playback, buffers are increased
+ * to 64 to support IDR interval till 60. As per the experiments,
+ * (IDR interval + 4) buffers are required at decoder capture plane
+ * for reverse playback
+ */
+#define VIDEO_MAX_FRAME               64
+#else
 #define VIDEO_MAX_FRAME               32
+#endif
 #define VIDEO_MAX_PLANES               8
 
 /*

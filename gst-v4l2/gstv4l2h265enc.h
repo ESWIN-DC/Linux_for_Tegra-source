@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020, NVIDIA CORPORATION. All rights reserved.
+ * Copyright (c) 2018-2021, NVIDIA CORPORATION. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -53,6 +53,7 @@ struct _GstV4l2H265Enc
   gboolean bit_packetization;
   guint32 slice_header_spacing;
   gboolean EnableMVBufferMeta;
+  gboolean enableLossless;
 };
 
 struct _GstV4l2H265EncClass

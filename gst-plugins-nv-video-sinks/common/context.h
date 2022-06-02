@@ -22,7 +22,6 @@
 #include <gst/video/gstvideosink.h>
 #include <gst/video/video.h>
 
-#include <gst/egl/egl.h>
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 #include <GLES2/gl2.h>

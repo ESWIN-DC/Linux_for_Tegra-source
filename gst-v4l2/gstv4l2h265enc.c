@@ -50,7 +50,7 @@ gst_v4l2_videnc_profile_get_type (void);
 /* prototypes */
 gboolean set_v4l2_h265_encoder_properties (GstVideoEncoder * encoder);
 gboolean gst_v4l2_h265_enc_slice_header_spacing (GstV4l2Object * v4l2object,
-    guint32 slice_header_spacing, gboolean bit_packetization);
+    guint32 slice_header_spacing, enum v4l2_enc_slice_length_type slice_length_type);
 void set_h265_video_enc_property (GstV4l2Object * v4l2object, guint label,
     gint param);
 
@@ -69,7 +69,8 @@ enum
   PROP_TWO_PASS_CBR,
   PROP_ENABLE_MV_META,
   PROP_NUM_BFRAMES,
-  PROP_NUM_REFERENCE_FRAMES
+  PROP_NUM_REFERENCE_FRAMES,
+  PROP_ENABLE_LOSSLESS_ENC
 };
 
 #define DEFAULT_PROFILE                              V4L2_MPEG_VIDEO_H265_PROFILE_MAIN
@@ -140,6 +141,9 @@ gst_v4l2_h265_enc_set_property (GObject * object,
     case PROP_NUM_REFERENCE_FRAMES:
       self->nRefFrames = g_value_get_uint (value);
       break;
+    case PROP_ENABLE_LOSSLESS_ENC:
+      self->enableLossless = g_value_get_boolean (value);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
@@ -189,6 +193,9 @@ gst_v4l2_h265_enc_get_property (GObject * object,
       break;
     case PROP_NUM_REFERENCE_FRAMES:
       g_value_set_uint (value, self->nRefFrames);
+      break;
+    case PROP_ENABLE_LOSSLESS_ENC:
+      g_value_set_boolean (value, self->enableLossless);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -260,6 +267,7 @@ gst_v4l2_h265_enc_init (GstV4l2H265Enc * self)
   self->slice_header_spacing = DEFAULT_SLICE_HEADER_SPACING;
   self->nRefFrames = 1;
   self->nBFrames = 0;
+  self->enableLossless = FALSE;
 }
 
 static void
@@ -373,6 +381,13 @@ gst_v4l2_h265_enc_class_init (GstV4l2H265EncClass * klass)
             0, MAX_NUM_REFERENCE_FRAMES, DEFAULT_NUM_REFERENCE_FRAMES,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
             GST_PARAM_MUTABLE_READY));
+
+    g_object_class_install_property (gobject_class, PROP_ENABLE_LOSSLESS_ENC,
+        g_param_spec_boolean ("enable-lossless",
+            "Enable Lossless encoding",
+            "Enable lossless encoding for YUV444",
+            FALSE, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
+            GST_PARAM_MUTABLE_READY));
   }
 #endif
 
@@ -425,13 +440,13 @@ gst_v4l2_videnc_profile_get_type (void)
 
 gboolean
 gst_v4l2_h265_enc_slice_header_spacing (GstV4l2Object * v4l2object,
-    guint32 slice_header_spacing, gboolean bit_packetization)
+    guint32 slice_header_spacing, enum v4l2_enc_slice_length_type slice_length_type)
 {
   struct v4l2_ext_control control;
   struct v4l2_ext_controls ctrls;
   gint ret;
   v4l2_enc_slice_length_param param =
-      { bit_packetization, slice_header_spacing };
+      { slice_length_type, slice_header_spacing };
 
   memset (&control, 0, sizeof (control));
   memset (&ctrls, 0, sizeof (ctrls));
@@ -503,8 +518,12 @@ set_v4l2_h265_encoder_properties (GstVideoEncoder * encoder)
   }
 
   if (self->slice_header_spacing) {
+    enum v4l2_enc_slice_length_type slice_length_type = V4L2_ENC_SLICE_LENGTH_TYPE_MBLK;
+    if (self->bit_packetization) {
+      slice_length_type = V4L2_ENC_SLICE_LENGTH_TYPE_BITS;
+    }
     if (!gst_v4l2_h265_enc_slice_header_spacing (video_enc->v4l2output,
-        self->slice_header_spacing, self->bit_packetization)) {
+        self->slice_header_spacing, slice_length_type)) {
       g_print ("S_EXT_CTRLS for SLICE_LENGTH_PARAM failed\n");
       return FALSE;
     }
@@ -550,6 +569,14 @@ set_v4l2_h265_encoder_properties (GstVideoEncoder * encoder)
         V4L2_CID_MPEG_VIDEOENC_NUM_REFERENCE_FRAMES,
         self->nRefFrames)) {
       g_print ("S_EXT_CTRLS for NUM_REFERENCE_FRAMES failed\n");
+      return FALSE;
+    }
+  }
+
+  if (self->enableLossless) {
+    if (!set_v4l2_video_mpeg_class (video_enc->v4l2output,
+        V4L2_CID_MPEG_VIDEOENC_ENABLE_LOSSLESS, self->enableLossless)) {
+      g_print ("S_EXT_CTRLS for ENABLE_LOSSLESS failed\n");
       return FALSE;
     }
   }

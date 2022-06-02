@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2014 SUMOMO Computer Association
  *     Author: ayaka <ayaka@soulik.info>
- * Copyright (c) 2018-2021, NVIDIA CORPORATION. All rights reserved.
+ * Copyright (c) 2018-2022, NVIDIA CORPORATION. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -47,13 +47,19 @@ gst_v4l2_videnc_profile_get_type (void);
 
 /* prototypes */
 gboolean gst_v4l2_h264_enc_slice_header_spacing (GstV4l2Object * v4l2object,
-    guint32 slice_header_spacing, gboolean bit_packetization);
+    guint32 slice_header_spacing, enum v4l2_enc_slice_length_type slice_length_type);
 gboolean set_v4l2_h264_encoder_properties (GstVideoEncoder * encoder);
 #endif
 
+#ifdef USE_V4L2_TARGET_NV
+static GstStaticCaps src_template_caps =
+GST_STATIC_CAPS ("video/x-h264, stream-format=(string) byte-stream, "
+    "alignment=(string) { au, nal }");
+#else
 static GstStaticCaps src_template_caps =
 GST_STATIC_CAPS ("video/x-h264, stream-format=(string) byte-stream, "
     "alignment=(string) au");
+#endif
 
 enum
 {
@@ -74,7 +80,8 @@ enum
   PROP_ENABLE_MV_META,
   PROP_SLICE_HEADER_SPACING,
   PROP_NUM_REFERENCE_FRAMES,
-  PROP_PIC_ORDER_CNT_TYPE
+  PROP_PIC_ORDER_CNT_TYPE,
+  PROP_ENABLE_LOSSLESS_ENC
 #endif
 /* TODO add H264 controls
  * PROP_I_FRAME_QP,
@@ -163,6 +170,10 @@ gst_v4l2_h264_enc_set_property (GObject * object,
       break;
     case PROP_SLICE_HEADER_SPACING:
       self->slice_header_spacing = g_value_get_uint64 (value);
+      if (self->slice_header_spacing)
+        video_enc->slice_output = TRUE;
+      else
+        video_enc->slice_output = FALSE;
       break;
     case PROP_SLICE_INTRA_REFRESH_INTERVAL:
       self->SliceIntraRefreshInterval = g_value_get_uint (value);
@@ -179,6 +190,9 @@ gst_v4l2_h264_enc_set_property (GObject * object,
       break;
     case PROP_PIC_ORDER_CNT_TYPE:
       self->poc_type = g_value_get_uint (value);
+      break;
+    case PROP_ENABLE_LOSSLESS_ENC:
+      self->enableLossless = g_value_get_boolean (value);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -238,6 +252,9 @@ gst_v4l2_h264_enc_get_property (GObject * object,
       break;
     case PROP_PIC_ORDER_CNT_TYPE:
       g_value_set_uint (value, self->poc_type);
+      break;
+    case PROP_ENABLE_LOSSLESS_ENC:
+      g_value_set_boolean (value, self->enableLossless);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -433,6 +450,7 @@ gst_v4l2_h264_enc_init (GstV4l2H264Enc * self)
   self->insert_sps_pps = FALSE;
   self->insert_aud = FALSE;
   self->insert_vui = FALSE;
+  self->enableLossless = FALSE;
 
   if (is_cuvid == TRUE)
     self->extended_colorformat = FALSE;
@@ -569,6 +587,13 @@ gst_v4l2_h264_enc_class_init (GstV4l2H264EncClass * klass)
             0, MAX_NUM_REFERENCE_FRAMES, DEFAULT_NUM_REFERENCE_FRAMES,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
             GST_PARAM_MUTABLE_READY));
+
+    g_object_class_install_property (gobject_class, PROP_ENABLE_LOSSLESS_ENC,
+        g_param_spec_boolean ("enable-lossless",
+            "Enable Lossless encoding",
+            "Enable lossless encoding for YUV444",
+            FALSE, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
+            GST_PARAM_MUTABLE_READY));
   }
 #endif
   baseclass->codec_name = "H264";
@@ -628,13 +653,29 @@ gst_v4l2_videnc_profile_get_type (void)
 
 gboolean
 gst_v4l2_h264_enc_slice_header_spacing (GstV4l2Object * v4l2object,
-    guint32 slice_header_spacing, gboolean bit_packetization)
+    guint32 slice_header_spacing, enum v4l2_enc_slice_length_type slice_length_type)
 {
   struct v4l2_ext_control control;
   struct v4l2_ext_controls ctrls;
   gint ret;
   v4l2_enc_slice_length_param param =
-      { bit_packetization, slice_header_spacing };
+      { slice_length_type, slice_header_spacing };
+
+  memset (&control, 0, sizeof (control));
+  memset (&ctrls, 0, sizeof (ctrls));
+
+  ctrls.count = 1;
+  ctrls.controls = &control;
+  ctrls.ctrl_class = V4L2_CTRL_CLASS_MPEG;
+
+  control.id = V4L2_CID_MPEG_VIDEOENC_ENABLE_SLICE_LEVEL_ENCODE;
+  control.value = TRUE;
+
+  ret = v4l2object->ioctl (v4l2object->video_fd, VIDIOC_S_EXT_CTRLS, &ctrls);
+  if (ret < 0) {
+    g_print ("Error while setting spacing and packetization\n");
+    return FALSE;
+  }
 
   memset (&control, 0, sizeof (control));
   memset (&ctrls, 0, sizeof (ctrls));
@@ -650,6 +691,12 @@ gst_v4l2_h264_enc_slice_header_spacing (GstV4l2Object * v4l2object,
   if (ret < 0) {
     g_print ("Error while setting spacing and packetization\n");
     return FALSE;
+  }
+
+  if (V4L2_TYPE_IS_MULTIPLANAR (v4l2object->type)) {
+      v4l2object->format.fmt.pix_mp.plane_fmt[0].sizeimage = slice_header_spacing;
+  } else {
+    v4l2object->format.fmt.pix.sizeimage = slice_header_spacing;
   }
 
   return TRUE;
@@ -727,9 +774,13 @@ set_v4l2_h264_encoder_properties (GstVideoEncoder * encoder)
   }
 
   if (self->slice_header_spacing) {
-    if (!gst_v4l2_h264_enc_slice_header_spacing (video_enc->v4l2output,
+    enum v4l2_enc_slice_length_type slice_length_type = V4L2_ENC_SLICE_LENGTH_TYPE_MBLK;
+    if (self->bit_packetization) {
+      slice_length_type = V4L2_ENC_SLICE_LENGTH_TYPE_BITS;
+    }
+    if (!gst_v4l2_h264_enc_slice_header_spacing (video_enc->v4l2capture,
         self->slice_header_spacing,
-        self->bit_packetization)) {
+        slice_length_type)) {
       g_print ("S_EXT_CTRLS for SLICE_LENGTH_PARAM failed\n");
       return FALSE;
     }
@@ -774,6 +825,14 @@ set_v4l2_h264_encoder_properties (GstVideoEncoder * encoder)
     if (!set_v4l2_video_mpeg_class (video_enc->v4l2output,
         V4L2_CID_MPEG_VIDEOENC_POC_TYPE, self->poc_type)) {
       g_print ("S_EXT_CTRLS for POC_TYPE failed\n");
+      return FALSE;
+    }
+  }
+
+  if (self->enableLossless) {
+    if (!set_v4l2_video_mpeg_class (video_enc->v4l2output,
+        V4L2_CID_MPEG_VIDEOENC_ENABLE_LOSSLESS, self->enableLossless)) {
+      g_print ("S_EXT_CTRLS for ENABLE_LOSSLESS failed\n");
       return FALSE;
     }
   }

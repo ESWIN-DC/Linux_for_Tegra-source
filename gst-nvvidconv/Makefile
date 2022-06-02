@@ -36,8 +36,7 @@ LIBS:= -lnvbuf_utils
 
 SRCS := $(wildcard *.c)
 
-INCLUDES += -I./ \
-	-I./3rdpartyheaders/glib-2.0 -I./3rdpartyheaders/gstreamer-1.0
+INCLUDES += -I./
 
 PKGS := gstreamer-1.0 \
 	gstreamer-base-1.0 \
@@ -55,11 +54,7 @@ LDFLAGS = -Wl,--no-undefined -L$(LIB_INSTALL_DIR) -Wl,-rpath,$(LIB_INSTALL_DIR)
 
 LIBS += `pkg-config --libs $(PKGS)`
 
-all: prebuild $(SO_NAME)
-
-prebuild:
-	mkdir -p 3rdpartyheaders
-	tar xf 3rdpartyheaders.tbz2 -C ./3rdpartyheaders
+all: $(SO_NAME)
 
 %.o: %.c
 	$(CC) -c $< $(CFLAGS) $(INCLUDES) -o $@
@@ -74,4 +69,4 @@ install: $(SO_NAME)
 
 .PHONY: clean
 clean:
-	rm -rf $(OBJS) $(SO_NAME) 3rdpartyheaders
+	rm -rf $(OBJS) $(SO_NAME)

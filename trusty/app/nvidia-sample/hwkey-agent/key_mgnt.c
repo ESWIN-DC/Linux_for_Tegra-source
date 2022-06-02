@@ -20,6 +20,14 @@
  * THE SOFTWARE.
  */
 
+/**
+ * @file
+ * <b>AES-256 software key definition functions</b>
+ *
+ * @b Description: This file specifies the
+ * AES-256 software key definition function.
+ */
+
 #include <common.h>
 #include <ekb_helper.h>
 #include <err.h>
@@ -32,6 +40,20 @@
 #include <tegra_se_internal.h>
 #include <trusty_std.h>
 #include <tegra_se.h>
+
+/**
+ * @defgroup trusty_aes_sw_cmac_group Software-Based AES-CMAC Function
+ *
+ * Specifies a software implementation of the AES-CMAC function,
+ * very similar to the
+ * <a href="https://man.archlinux.org/man/community/libressl/libressl-CMAC_Init.3.en">
+ *   OpenSSL CMAC
+ * </a>
+ * implementation, and based on the same concepts.
+ *
+ * @ingroup trusty_key_generation_group
+ * @{
+ */
 
 /*
  * Random fixed vector for EKB.
@@ -69,17 +91,27 @@ static uint8_t ekb_ek[AES_KEY_128_SIZE] = { 0 };
 static uint8_t ekb_ak[AES_KEY_128_SIZE] = { 0 };
 static uint8_t ssk_dk[AES_KEY_128_SIZE] = { 0 };
 
-/*
- * @brief NIST-SP-800-108 KDF
+/**
+ * @brief  A software-based NIST-SP-800-108 KDF; derives keys from a key
+ *   in a key buffer.
  *
- * @param *key		[in]  input key for derivation
- * @param key_len	[in]  input key length (byte)
- * @param *context	[in]  context string
- * @param *label	[in]  label string
- * @param dk_len	[in]  length of the derived key (byte)
- * @param *out_dk 	[out] output of derived key
+ * @note  Use this function only at run time
+ *   (after the boot stage). To derive keys from the SE keyslot at boot time, 
+ *   use se_nist_sp_800_with_cmac(). That function is defined in the repo
+ *   trusty/keystore-demo, \
+ *   in ./hwkey-agent/platform/tegra_se/include/tegra_se.h.
+ *   Its KDF is implemented in hardware rather than software.
  *
- * @return NO_ERROR if successful
+ * @param [in]	*key		Input key for derivation.
+ * @param [in]	key_len		Length in bytes of the input key.
+ * @param [in]	*context	A pointer to a NIST-SP-800-108 context string.
+ * @param [in]	*label		A pointer to a NIST-SP-800-108 label string.
+ * @param [in]	dk_len		Length of the derived key in bytes;
+ *							 may be 16 (128 bits) or any multiple of 16.
+ * @param [out] *out_dk		A pointer to the derived key. The function stores
+ *							 its result in this location.
+ *
+ * @return NO_ERROR if successful, or ERR_NO_MEMORY if no memory is available.
  */
 static int nist_sp_800_108_with_cmac(uint8_t *key,
 				     uint32_t key_len,
@@ -368,3 +400,5 @@ err_key_mgnt:
 		TLOGE("%s: failed (%d)\n", __func__, rc);
 	return rc;
 }
+
+/** @} */

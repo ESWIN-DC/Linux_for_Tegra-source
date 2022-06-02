@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2014 Collabora Ltd.
  *     Author: Nicolas Dufresne <nicolas.dufresne@collabora.com>
- * Copyright (c) 2018-2020, NVIDIA CORPORATION. All rights reserved.
+ * Copyright (c) 2018-2021, NVIDIA CORPORATION. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -521,7 +521,6 @@ gst_v4l2_allocator_init (GstV4l2Allocator * allocator)
   GST_OBJECT_FLAG_SET (allocator, GST_ALLOCATOR_FLAG_CUSTOM_ALLOC);
 }
 
-#ifndef USE_V4L2_TARGET_NV
 #define GST_V4L2_ALLOCATOR_PROBE(obj,type) \
     gst_v4l2_allocator_probe ((obj), V4L2_MEMORY_ ## type, \
         GST_V4L2_ALLOCATOR_FLAG_ ## type ## _REQBUFS, \
@@ -552,7 +551,6 @@ gst_v4l2_allocator_probe (GstV4l2Allocator * allocator, guint32 memory,
 
   return flags;
 }
-#endif
 
 static GstV4l2MemoryGroup *
 gst_v4l2_allocator_create_buf (GstV4l2Allocator * allocator)
@@ -616,7 +614,11 @@ gst_v4l2_allocator_alloc (GstV4l2Allocator * allocator)
   group = gst_atomic_queue_pop (allocator->free_queue);
 
   if (group == NULL) {
+#ifdef USE_V4L2_TARGET_NV
+    if (allocator->can_allocate && allocator->enable_dynamic_allocation) {
+#else
     if (allocator->can_allocate) {
+#endif
       group = gst_v4l2_allocator_create_buf (allocator);
 
       /* Don't hammer on CREATE_BUFS */
@@ -666,9 +668,7 @@ GstV4l2Allocator *
 gst_v4l2_allocator_new (GstObject * parent, GstV4l2Object * v4l2object)
 {
   GstV4l2Allocator *allocator;
-#ifndef USE_V4L2_TARGET_NV
   guint32 flags = 0;
-#endif
   gchar *name, *parent_name;
 
   parent_name = gst_object_get_name (parent);
@@ -685,14 +685,9 @@ gst_v4l2_allocator_new (GstObject * parent, GstV4l2Object * v4l2object)
   /* Keep a ref on the elemnt so obj does not disapear */
   gst_object_ref (allocator->obj->element);
 
-#ifdef USE_V4L2_TARGET_NV
-  return allocator;
-#else
-
   flags |= GST_V4L2_ALLOCATOR_PROBE (allocator, MMAP);
   flags |= GST_V4L2_ALLOCATOR_PROBE (allocator, USERPTR);
   flags |= GST_V4L2_ALLOCATOR_PROBE (allocator, DMABUF);
-
 
   if (flags == 0) {
     /* Drivers not ported from videobuf to videbuf2 don't allow freeing buffers
@@ -707,7 +702,6 @@ gst_v4l2_allocator_new (GstObject * parent, GstV4l2Object * v4l2object)
   GST_OBJECT_FLAG_SET (allocator, flags);
 
   return allocator;
-#endif
 }
 
 guint
@@ -1602,3 +1596,16 @@ gst_v4l2_allocator_reset_group (GstV4l2Allocator * allocator,
 
   gst_v4l2_allocator_reset_size (allocator, group);
 }
+
+#ifdef USE_V4L2_TARGET_NV
+void
+gst_v4l2_allocator_enable_dynamic_allocation (GstV4l2Allocator * allocator,
+    gboolean enable_dynamic_allocation)
+{
+  GST_DEBUG_OBJECT (allocator, "dynamic allocation enable %d", enable_dynamic_allocation);
+
+  GST_OBJECT_LOCK (allocator);
+  allocator->enable_dynamic_allocation = enable_dynamic_allocation;
+  GST_OBJECT_UNLOCK (allocator);
+}
+#endif

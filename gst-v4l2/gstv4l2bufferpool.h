@@ -3,7 +3,7 @@
  * Copyright (C) 2001-2002 Ronald Bultje <rbultje@ronald.bitfreak.net>
  *               2006 Edgard Lima <edgard.lima@gmail.com>
  *               2009 Texas Instruments, Inc - http://www.ti.com/
- * Copyright (c) 2018, NVIDIA CORPORATION. All rights reserved.
+ * Copyright (c) 2018-2021, NVIDIA CORPORATION. All rights reserved.
  *
  * gstv4l2bufferpool.h V4L2 buffer pool class
  *
@@ -85,6 +85,7 @@ struct _GstV4l2BufferPool
   guint min_latency;         /* number of buffers we will hold */
   guint max_latency;         /* number of buffers we can hold */
   guint num_queued;          /* number of buffers queued in the driver */
+  guint num_allocated;       /* number of buffers allocated */
   guint copy_threshold;      /* when our pool runs lower, start handing out copies */
 
   gboolean streaming;
@@ -97,6 +98,10 @@ struct _GstV4l2BufferPool
 
   /* Control to warn only once on buggy feild driver bug */
   gboolean has_warned_on_buggy_field;
+
+#ifdef USE_V4L2_TARGET_NV
+  gboolean enable_dynamic_allocation; /* If dynamic_allocation should be set */
+#endif
 };
 
 struct _GstV4l2BufferPoolClass
@@ -118,6 +123,9 @@ void                gst_v4l2_buffer_pool_copy_at_threshold (GstV4l2BufferPool * 
 gboolean            gst_v4l2_buffer_pool_flush   (GstBufferPool *pool);
 
 #ifdef USE_V4L2_TARGET_NV
+void
+gst_v4l2_buffer_pool_enable_dynamic_allocation (GstV4l2BufferPool * pool,
+                                                gboolean enable_dynamic_allocation);
 gint
 get_motion_vectors (GstV4l2Object *obj, guint32 bufferIndex,
             v4l2_ctrl_videoenc_outputbuf_metadata_MV *enc_mv_metadata);

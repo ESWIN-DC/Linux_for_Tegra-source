@@ -613,6 +613,21 @@ bool StreamConsumer::threadExecute(GstNvArgusCameraSrc *src)
         src->exposureTimePropSet = FALSE;
       }
 
+      if(src->aeRegionPropSet == TRUE)
+      {
+        std::vector < AcRegion > AeRegion;
+        AcRegion ae(src->controls.AeRegion.left(), src->controls.AeRegion.top(),
+                    src->controls.AeRegion.right(), src->controls.AeRegion.bottom(),
+                    src->controls.AeRegion.weight());
+        AeRegion.push_back(ae);
+        GST_ARGUS_PRINT("Setting AeRegion on the fly: %d %d %d %d %f \n",
+                        AeRegion[0].left(), AeRegion[0].top(), AeRegion[0].right(),
+                        AeRegion[0].bottom(), AeRegion[0].weight());
+        l_iAutoControlSettings_ptr->setAeRegions(AeRegion);
+        l_iCaptureSession->repeat(l_captureRequest);
+        src->aeRegionPropSet = FALSE;
+      }
+
       // Use the IFrame interface to print out the frame number/timestamp, and
       // to provide access to the Image in the Frame.
       IFrame *iFrame = interface_cast<IFrame>(frame);
@@ -1086,6 +1101,22 @@ static bool execute(int32_t cameraIndex,
     src->ispDigitalGainRangePropSet = FALSE;
   }
 
+  /* Setting Ae Region */
+  if(src->aeRegionPropSet == TRUE)
+  {
+    std::vector < AcRegion > AeRegion;
+    AcRegion ae(src->controls.AeRegion.left(), src->controls.AeRegion.top(),
+                src->controls.AeRegion.right(), src->controls.AeRegion.bottom(),
+                src->controls.AeRegion.weight());
+    AeRegion.push_back(ae);
+    GST_ARGUS_PRINT("Setting AeRegion: %d %d %d %d %f \n",
+                    AeRegion[0].left(), AeRegion[0].top(), AeRegion[0].right(),
+                    AeRegion[0].bottom(), AeRegion[0].weight());
+
+    iAutoControlSettings->setAeRegions(AeRegion);
+    src->aeRegionPropSet = FALSE;
+  }
+
   GST_ARGUS_PRINT("Setup Complete, Starting captures for %d seconds\n", secToRun);
 
   GST_ARGUS_PRINT("Starting repeat capture requests.\n");
@@ -1191,6 +1222,7 @@ enum
   PROP_AEANTIBANDING_MODE,
   PROP_EXPOSURE_COMPENSATION,
   PROP_AE_LOCK,
+  PROP_AE_REGION,
   PROP_AWB_LOCK,
   PROP_BUFAPI
 };
@@ -1901,6 +1933,63 @@ done:
   return ret;
 }
 
+static gboolean set_ac_region (GstNvArgusCameraSrc *src)
+{
+  gchar **tokens;
+  gchar **temp;
+  gchar *token;
+  gfloat array[5];
+  gint index = 0;
+  gfloat val;
+  gboolean ret;
+  gchar *str;
+
+  if (!src)
+    return FALSE;
+
+  str = src->aeRegionString;
+  GST_ARGUS_PRINT("NvArgusCameraSrc: Setting AE REGION : %s\n", str);
+
+  if (!str)
+    return FALSE;
+
+  tokens = g_strsplit_set (str, " \"\'", -1);
+  temp = tokens;
+  while (*temp) {
+    token = *temp++;
+    if (!g_strcmp0 (token, ""))
+      continue;
+    if (index == 5)
+    {
+      GST_ARGUS_PRINT ("Invalid Range Input\n");
+      ret = FALSE;
+      goto done;
+    }
+
+    val = atof (token);
+    array[index++] = val;
+  }
+  if (index == 5)
+  {
+       uint32_t left = array[0];
+       uint32_t top = array[1];
+       uint32_t right = array[2];
+       uint32_t bottom = array[3];
+       float weight = array[4];
+       src->controls.AeRegion = AcRegion(left, top, right, bottom, weight);
+  }
+  else
+  {
+    GST_ARGUS_PRINT ("Need five values to set range\n");
+    ret = FALSE;
+    goto done;
+  }
+  ret = TRUE;
+done:
+  g_strfreev (tokens);
+  return ret;
+}
+
 /* initialize the nvarguscamerasrc's class */
 static void
 gst_nv_argus_camera_src_class_init (GstNvArgusCameraSrcClass * klass)
@@ -1971,6 +2060,14 @@ gst_nv_argus_camera_src_class_init (GstNvArgusCameraSrcClass * klass)
           "\t\t\tin that order, to set the property.\n"
           "\t\t\teg: exposuretimerange=\"34000 358733000\"",
           NVARGUSCAM_DEFAULT_EXPOSURE_TIME, (GParamFlags) (G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
+
+  g_object_class_install_property (gobject_class, PROP_AE_REGION,
+      g_param_spec_string ("aeregion", "AE Region",
+          "Property to set region of interest for auto exposure\n"
+          "\t\t\twith values of ROI coordinates (left, top, right, bottom)\n"
+          "\t\t\tand weight (float number) in that order, to set the property\n"
+          "\t\t\tuse for example: aeregion=\"0 0 256 256 1\"",
+          NULL, (GParamFlags) (G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
 
   g_object_class_install_property (gobject_class, PROP_GAIN_RANGE,
       g_param_spec_string ("gainrange", "Gain Range",
@@ -2173,6 +2270,21 @@ gst_nv_argus_camera_src_set_property (GObject * object, guint prop_id,
       }
     }
       break;
+    case PROP_AE_REGION: {
+      gchar *prev_aeregion = NULL;
+      prev_aeregion = src->aeRegionString;
+
+      src->aeRegionString = (gchar *)g_value_dup_string(value);
+      if (!set_ac_region (src)) {
+        g_free (src->aeRegionString);
+        src->aeRegionString = prev_aeregion;
+
+      } else {
+        g_free (prev_aeregion);
+        src->aeRegionPropSet = TRUE;
+      }
+    }
+      break;
     case PROP_GAIN_RANGE: {
       gchar *prev_gainrange = NULL;
       prev_gainrange = src->gainRangeString;
@@ -2276,6 +2388,9 @@ gst_nv_argus_camera_src_get_property (GObject * object, guint prop_id,
       break;
     case PROP_EXPOSURE_TIME_RANGE:
       g_value_set_string (value, src->exposureTimeString);
+      break;
+    case PROP_AE_REGION:
+      g_value_set_string (value, src->aeRegionString);
       break;
     case PROP_GAIN_RANGE:
       g_value_set_string (value, src->gainRangeString);

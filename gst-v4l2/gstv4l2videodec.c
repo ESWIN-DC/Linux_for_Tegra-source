@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2014-2021 Collabora Ltd.
  *     Author: Nicolas Dufresne <nicolas.dufresne@collabora.com>
- * Copyright (c) 2018-2019, NVIDIA CORPORATION. All rights reserved.
+ * Copyright (c) 2018-2021, NVIDIA CORPORATION. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -38,8 +38,15 @@
 
 GST_DEBUG_CATEGORY_STATIC (gst_v4l2_video_dec_debug);
 #define GST_CAT_DEFAULT gst_v4l2_video_dec_debug
-#define ENABLE_DRAIN 0
+#define ENABLE_DRAIN 1
 #ifdef USE_V4L2_TARGET_NV
+
+typedef enum {
+  CAP_BUF_DYNAMIC_ALLOC_DISABLED,
+  CAP_BUF_DYNAMIC_ALLOC_ENABLED_FOR_FW_PLAYBACK,
+  CAP_BUF_DYNAMIC_ALLOC_ENABLED_FOR_RW_PLAYBACK,
+  CAP_BUF_DYNAMIC_ALLOC_ENABLED_FOR_FW_RW_PLAYBACK
+} CaptureBufferDynamicAllocationModes;
 
 #define DEFAULT_SKIP_FRAME_TYPE V4L2_SKIP_FRAMES_TYPE_NONE
 #define DEFAULT_DISABLE_DPB FALSE
@@ -47,9 +54,12 @@ GST_DEBUG_CATEGORY_STATIC (gst_v4l2_video_dec_debug);
 #define DEFAULT_FRAME_TYPR_REPORTING FALSE
 #define DEFAULT_ERROR_CHECK FALSE
 #define DEFAULT_MAX_PERFORMANCE FALSE
+#define DEFAULT_CAP_BUF_DYNAMIC_ALLOCATION CAP_BUF_DYNAMIC_ALLOC_DISABLED
 #define GST_TYPE_V4L2_VID_DEC_SKIP_FRAMES (gst_video_dec_skip_frames ())
+#define GST_TYPE_V4L2_DEC_CAP_BUF_DYNAMIC_ALLOC (gst_video_dec_capture_buffer_dynamic_allocation ())
 
 gboolean default_nvbuf_api_version_new;
+gboolean default_cudadec_low_latency;
 gint default_num_extra_surfaces;
 
 static gboolean enable_latency_measurement = FALSE;
@@ -102,6 +112,29 @@ gst_video_dec_skip_frames (void)
     };
 
     qtype = g_enum_register_static ("SkipFrame", values);
+  }
+  return qtype;
+}
+
+static GType
+gst_video_dec_capture_buffer_dynamic_allocation (void)
+{
+  static GType qtype = 0;
+
+  if (qtype == 0) {
+    static const GEnumValue values[] = {
+      {CAP_BUF_DYNAMIC_ALLOC_DISABLED,
+       "Capture buffer dynamic allocation disabled", "cap_buf_dyn_alloc_disabled"},
+      {CAP_BUF_DYNAMIC_ALLOC_ENABLED_FOR_FW_PLAYBACK,
+       "Capture buffer dynamic allocation enabled for forward playback", "fw_cap_buf_dyn_alloc_enabled"},
+      {CAP_BUF_DYNAMIC_ALLOC_ENABLED_FOR_RW_PLAYBACK,
+       "Capture buffer dynamic allocation enabled for reverse playback", "rw_cap_buf_dyn_alloc_enabled"},
+      {CAP_BUF_DYNAMIC_ALLOC_ENABLED_FOR_FW_RW_PLAYBACK,
+       "Capture buffer dynamic allocation enabled for forward and reverse playback", "fw_rw_cap_buf_dyn_alloc_enabled"},
+      {0, NULL, NULL}
+    };
+
+    qtype = g_enum_register_static ("CaptureBufferDynamicAllocationModes", values);
   }
   return qtype;
 }
@@ -217,7 +250,9 @@ enum
   PROP_NVBUF_API_VERSION,
 /*Properties exposed on dGPU only*/
   PROP_CUDADEC_MEM_TYPE,
-  PROP_CUDADEC_GPU_ID
+  PROP_CUDADEC_GPU_ID,
+  PROP_CUDADEC_LOW_LATENCY,
+  PROP_CAP_BUF_DYNAMIC_ALLOCATION,
 #endif
 };
 
@@ -367,6 +402,10 @@ gst_v4l2_video_dec_set_property_tegra (GObject * object,
       self->v4l2output->open_mjpeg_block = g_value_get_boolean (value);
       break;
 
+    case PROP_CAP_BUF_DYNAMIC_ALLOCATION:
+      self->cap_buf_dynamic_allocation = g_value_get_enum (value);
+      break;
+
 #endif
       /* By default, only set on output */
     default:
@@ -419,6 +458,13 @@ gst_v4l2_video_dec_set_property_cuvid (GObject * object,
       self->cudadec_gpu_id = g_value_get_uint (value);
       break;
 
+    case PROP_CUDADEC_LOW_LATENCY:
+      self->cudadec_low_latency = g_value_get_boolean (value);
+      break;
+
+    case PROP_CAP_BUF_DYNAMIC_ALLOCATION:
+      self->cap_buf_dynamic_allocation = g_value_get_enum (value);
+      break;
 #endif
       /* By default, only set on output */
     default:
@@ -485,6 +531,9 @@ gst_v4l2_video_dec_get_property_tegra (GObject * object,
       g_value_set_boolean (value, self->v4l2output->open_mjpeg_block);
       break;
 
+    case PROP_CAP_BUF_DYNAMIC_ALLOCATION:
+      g_value_set_enum (value, self->cap_buf_dynamic_allocation);
+      break;
 #endif
       /* By default read from output */
     default:
@@ -535,6 +584,13 @@ gst_v4l2_video_dec_get_property_cuvid (GObject * object,
       g_value_set_uint(value, self->cudadec_gpu_id);
       break;
 
+    case PROP_CUDADEC_LOW_LATENCY:
+      g_value_set_boolean (value, self->cudadec_low_latency);
+      break;
+
+    case PROP_CAP_BUF_DYNAMIC_ALLOCATION:
+      g_value_set_enum (value, self->cap_buf_dynamic_allocation);
+      break;
 #endif
       /* By default read from output */
     default:
@@ -735,10 +791,12 @@ gst_v4l2_video_dec_set_format (GstVideoDecoder * decoder,
      * block. */
     {
       GstCaps *caps = gst_pad_get_current_caps (decoder->srcpad);
-      GstQuery *query = gst_query_new_allocation (caps, FALSE);
-      gst_pad_peer_query (decoder->srcpad, query);
-      gst_query_unref (query);
-      gst_caps_unref (caps);
+      if (caps) {
+        GstQuery *query = gst_query_new_allocation (caps, FALSE);
+        gst_pad_peer_query (decoder->srcpad, query);
+        gst_query_unref (query);
+        gst_caps_unref (caps);
+      }
     }
 
     gst_v4l2_object_stop (self->v4l2capture);
@@ -1019,7 +1077,7 @@ done:
   return ret;
 }
 
-static gboolean
+static GstFlowReturn
 gst_v4l2_video_dec_drain (GstVideoDecoder * decoder)
 {
 #if ENABLE_DRAIN
@@ -1029,9 +1087,9 @@ gst_v4l2_video_dec_drain (GstVideoDecoder * decoder)
   gst_v4l2_video_dec_finish (decoder);
   gst_v4l2_video_dec_flush (decoder);
 
-  return TRUE;
+  return GST_FLOW_OK;
 #else
-  return TRUE;
+  return GST_FLOW_OK;
 #endif
 }
 
@@ -1449,6 +1507,12 @@ gst_v4l2_video_dec_handle_frame (GstVideoDecoder * decoder,
         retval = obj->ioctl (obj->video_fd, VIDIOC_DQEVENT, &ev);
         if (retval != 0)
         {
+#ifndef USE_V4L2_TARGET_NV_X86
+          if (ev.sequence == 0) {
+            g_print ("Stream format not found, dropping the frame\n");
+            goto drop;
+          }
+#endif
           usleep(100*1000); //TODO is this needed ?
           continue;
         }
@@ -1544,6 +1608,24 @@ gst_v4l2_video_dec_handle_frame (GstVideoDecoder * decoder,
     if (!gst_buffer_pool_set_active (GST_BUFFER_POOL (self->v4l2capture->pool),
             TRUE))
       goto activate_failed;
+
+#ifdef USE_V4L2_TARGET_NV
+    if (self->v4l2capture->pool) {
+      if (self->cap_buf_dynamic_allocation == CAP_BUF_DYNAMIC_ALLOC_ENABLED_FOR_FW_RW_PLAYBACK) {
+        gst_v4l2_buffer_pool_enable_dynamic_allocation (GST_V4L2_BUFFER_POOL (self->v4l2capture->pool),
+            TRUE);
+      } else if (self->cap_buf_dynamic_allocation == CAP_BUF_DYNAMIC_ALLOC_ENABLED_FOR_RW_PLAYBACK && self->rate < 0) {
+        gst_v4l2_buffer_pool_enable_dynamic_allocation (GST_V4L2_BUFFER_POOL (self->v4l2capture->pool),
+            TRUE);
+      } else if (self->cap_buf_dynamic_allocation == CAP_BUF_DYNAMIC_ALLOC_ENABLED_FOR_FW_PLAYBACK && self->rate > 0) {
+        gst_v4l2_buffer_pool_enable_dynamic_allocation (GST_V4L2_BUFFER_POOL (self->v4l2capture->pool),
+            TRUE);
+      } else {
+        gst_v4l2_buffer_pool_enable_dynamic_allocation (GST_V4L2_BUFFER_POOL (self->v4l2capture->pool),
+            FALSE);
+      }
+    }
+#endif
   }
 
   task_state = gst_pad_get_task_state (GST_VIDEO_DECODER_SRC_PAD (self));
@@ -1738,9 +1820,6 @@ gst_v4l2_video_dec_sink_event (GstVideoDecoder * decoder, GstEvent * event)
 
   switch (GST_EVENT_TYPE (event)) {
     case GST_EVENT_FLUSH_START:
-      GST_DEBUG_OBJECT (self, "flush start");
-      gst_v4l2_object_unlock (self->v4l2output);
-      gst_v4l2_object_unlock (self->v4l2capture);
       break;
 #ifdef USE_V4L2_TARGET_NV
     case GST_EVENT_GAP:
@@ -1767,9 +1846,6 @@ gst_v4l2_video_dec_sink_event (GstVideoDecoder * decoder, GstEvent * event)
 
   switch (GST_EVENT_TYPE (event)) {
     case GST_EVENT_FLUSH_START:
-      /* The processing thread should stop now, wait for it */
-      gst_pad_stop_task (decoder->srcpad);
-      GST_DEBUG_OBJECT (self, "flush start done");
       break;
     default:
       break;
@@ -1777,6 +1853,55 @@ gst_v4l2_video_dec_sink_event (GstVideoDecoder * decoder, GstEvent * event)
 
   return ret;
 }
+
+#ifdef USE_V4L2_TARGET_NV
+static gboolean
+gst_v4l2_video_dec_src_event (GstVideoDecoder * decoder, GstEvent * event)
+{
+  GstV4l2VideoDec *self = GST_V4L2_VIDEO_DEC (decoder);
+  gboolean ret;
+
+  switch (GST_EVENT_TYPE (event)) {
+    case GST_EVENT_SEEK:
+    {
+      GstFormat format;
+      gdouble rate;
+      GstSeekFlags flags;
+      GstSeekType start_type, stop_type;
+      gint64 start, stop;
+
+      gst_event_parse_seek (event, &rate, &format, &flags, &start_type, &start,
+          &stop_type, &stop);
+
+      self->rate = rate;
+      GST_DEBUG_OBJECT (self, "Seek event received with rate %f", rate);
+
+      if (self->v4l2capture->pool) {
+        if (self->cap_buf_dynamic_allocation == CAP_BUF_DYNAMIC_ALLOC_ENABLED_FOR_FW_RW_PLAYBACK) {
+          gst_v4l2_buffer_pool_enable_dynamic_allocation (GST_V4L2_BUFFER_POOL (self->v4l2capture->pool),
+              TRUE);
+        } else if (self->cap_buf_dynamic_allocation == CAP_BUF_DYNAMIC_ALLOC_ENABLED_FOR_RW_PLAYBACK && self->rate < 0) {
+          gst_v4l2_buffer_pool_enable_dynamic_allocation (GST_V4L2_BUFFER_POOL (self->v4l2capture->pool),
+              TRUE);
+        } else if (self->cap_buf_dynamic_allocation == CAP_BUF_DYNAMIC_ALLOC_ENABLED_FOR_FW_PLAYBACK && self->rate > 0) {
+          gst_v4l2_buffer_pool_enable_dynamic_allocation (GST_V4L2_BUFFER_POOL (self->v4l2capture->pool),
+              TRUE);
+        } else {
+          gst_v4l2_buffer_pool_enable_dynamic_allocation (GST_V4L2_BUFFER_POOL (self->v4l2capture->pool),
+              FALSE);
+        }
+      }
+      break;
+    }
+    default:
+      break;
+  }
+
+  ret = GST_VIDEO_DECODER_CLASS (parent_class)->src_event (decoder, event);
+
+  return ret;
+}
+#endif
 
 static GstStateChangeReturn
 gst_v4l2_video_dec_change_state (GstElement * element,
@@ -1834,6 +1959,7 @@ gst_v4l2_video_dec_init (GstV4l2VideoDec * self)
   if (is_cuvid == TRUE) {
     default_nvbuf_api_version_new = TRUE;
     default_num_extra_surfaces = 0; //default for dGPU
+    default_cudadec_low_latency = FALSE;
   } else if (is_cuvid == FALSE) {
     default_nvbuf_api_version_new = FALSE;
     default_num_extra_surfaces = 1; //default for Tegra
@@ -1851,6 +1977,9 @@ gst_v4l2_video_dec_init (GstV4l2VideoDec * self)
   self->enable_max_performance = DEFAULT_MAX_PERFORMANCE;
   self->cudadec_mem_type = DEFAULT_CUDADEC_MEM_TYPE;
   self->cudadec_gpu_id = DEFAULT_CUDADEC_GPU_ID;
+  self->cudadec_low_latency = default_cudadec_low_latency;
+  self->rate = 1;
+  self->cap_buf_dynamic_allocation = DEFAULT_CAP_BUF_DYNAMIC_ALLOCATION;
 #endif
 
   const gchar * latency = g_getenv("NVDS_ENABLE_LATENCY_MEASUREMENT");
@@ -1949,7 +2078,7 @@ gst_v4l2_video_dec_class_init (GstV4l2VideoDecClass * klass)
           "Number of extra surfaces",
           "Additional number of surfaces in addition to min decode surfaces given by the v4l2 driver",
           0,
-          24, 24,
+          55, 55,
           G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_READY));
 
   if (is_cuvid == FALSE) {
@@ -1995,6 +2124,14 @@ gst_v4l2_video_dec_class_init (GstV4l2VideoDecClass * klass)
             "Set to use new buf API",
             default_nvbuf_api_version_new, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
+    g_object_class_install_property (gobject_class, PROP_CAP_BUF_DYNAMIC_ALLOCATION,
+      g_param_spec_enum ("capture-buffer-dynamic-allocation",
+          "Enable capture buffer dynamic allocation",
+          "Set to enable capture buffer dynamic allocation",
+          GST_TYPE_V4L2_DEC_CAP_BUF_DYNAMIC_ALLOC,
+          DEFAULT_CAP_BUF_DYNAMIC_ALLOCATION,
+          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
   } else if (is_cuvid == TRUE) {
     g_object_class_install_property (gobject_class, PROP_CUDADEC_MEM_TYPE,
         g_param_spec_enum ("cudadec-memtype",
@@ -2010,6 +2147,13 @@ gst_v4l2_video_dec_class_init (GstV4l2VideoDecClass * klass)
             0,
             G_MAXUINT, DEFAULT_CUDADEC_GPU_ID,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_READY));
+
+    g_object_class_install_property (gobject_class, PROP_CUDADEC_LOW_LATENCY,
+        g_param_spec_boolean ("low-latency-mode",
+            "CUVID Decode Low Latency Mode",
+            "Set low latency mode for bitstreams having I and IPPP frames",
+            default_cudadec_low_latency,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
   }
 #endif
 
@@ -2035,6 +2179,10 @@ gst_v4l2_video_dec_class_init (GstV4l2VideoDecClass * klass)
       GST_DEBUG_FUNCPTR (gst_v4l2_video_dec_src_query);
   video_decoder_class->sink_event =
       GST_DEBUG_FUNCPTR (gst_v4l2_video_dec_sink_event);
+#ifdef USE_V4L2_TARGET_NV
+  video_decoder_class->src_event =
+      GST_DEBUG_FUNCPTR (gst_v4l2_video_dec_src_event);
+#endif
 
   element_class->change_state =
       GST_DEBUG_FUNCPTR (gst_v4l2_video_dec_change_state);

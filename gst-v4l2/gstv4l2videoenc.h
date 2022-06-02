@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2014 SUMOMO Computer Association.
  *     Author: ayaka <ayaka@soulik.info>
- * Copyright (c) 2018-2021, NVIDIA CORPORATION. All rights reserved.
+ * Copyright (c) 2018-2022, NVIDIA CORPORATION. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -78,6 +78,9 @@ struct _GstV4l2VideoEnc
   GQueue *got_frame_pt;
   gboolean nvbuf_api_version_new;
   guint32 cudaenc_gpu_id;
+  gboolean slice_output;
+  GstVideoCodecFrame *best_prev;
+  GstClockTime buf_pts_prev;
 #endif
 
   /* < private > */

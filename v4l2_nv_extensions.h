@@ -426,8 +426,8 @@ struct v4l2_ctrl_vp8_frame_hdr {
  * MEMORY               | OUTPUT PLANE | CAPTURE PLANE
  * :------------------: | :----------: | :-----------:
  * V4L2_MEMORY_MMAP     | Y            | Y
- * V4L2_MEMORY_DMABUF   | N            | N
- * V4L2_MEMORY_USERPTR  | N            | N
+ * V4L2_MEMORY_DMABUF   | N            | Y
+ * V4L2_MEMORY_USERPTR  | Y            | N
  *
  * ### Supported Controls
  * - #V4L2_CID_MPEG_VIDEO_DISABLE_COMPLETE_FRAME_INPUT
@@ -575,6 +575,26 @@ struct v4l2_ctrl_vp8_frame_hdr {
  *
  */
 #define V4L2_CID_VIDEODEC_HDR_MASTERING_DISPLAY_DATA (V4L2_CID_MPEG_BASE+522)
+
+/**
+ * Defines the Control ID to get Sample Aspect Ratio width for decoding.
+ *
+ * This control returns unsigned integer of Sample Aspect Ratio width.
+ *
+ * @attention This control must be set after receiving V4L2_EVENT_RESOLUTION_CHANGE.
+ *
+ */
+#define V4L2_CID_MPEG_VIDEODEC_SAR_WIDTH (V4L2_CID_MPEG_BASE+569)
+
+/**
+ * Defines the Control ID to get Sample Aspect Ratio height for decoding.
+ *
+ * This control returns unsigned integer of Sample Aspect Ratio height.
+ *
+ * @attention This control must be set after receiving V4L2_EVENT_RESOLUTION_CHANGE.
+ *
+ */
+#define V4L2_CID_MPEG_VIDEODEC_SAR_HEIGHT (V4L2_CID_MPEG_BASE+570)
 
 /** @} */
 
@@ -1225,6 +1245,40 @@ struct v4l2_ctrl_vp8_frame_hdr {
  * and before requesting buffers on either plane.
  */
 #define V4L2_CID_MPEG_VIDEOENC_FORCE_IDR_FRAME (V4L2_CID_MPEG_BASE+567)
+
+ /**
+ * Defines the Control ID to set low latency to be used by decoder.
+ *
+ * This control can be used by decoder to set low latency for streams having
+ * I and IPPP frames.
+ *
+ * @attention This control must be set before requesting buffers on either plane.
+ */
+#define V4L2_CID_MPEG_VIDEO_CUDA_LOW_LATENCY (V4L2_CID_MPEG_BASE+568)
+
+/**
+ * Defines the Control ID to enable lossless H.264/H.265 encoding.
+ *
+ * An boolean value must be supplied with this control. Default is 0.
+ * Lossless encoding is supported only for YUV444 8/10-bit format.
+ * @note This control must be set in case of H.264 YUV444 encoding as
+ * it does not support lossy encoding.
+ *
+ * @attention This control should be set after setting formats on both the planes
+ * and before requesting buffers on either plane.
+ */
+#define V4L2_CID_MPEG_VIDEOENC_ENABLE_LOSSLESS (V4L2_CID_MPEG_BASE+569)
+
+/**
+ * Defines the Control ID to set chroma_factor_idc for H.265 encoding.
+ *
+ * An integer value must be supplied with this control. Default is 1, and
+ * 3 for YUV444 8/10-bit format.
+ *
+ * @attention This control should be set after setting formats on both the planes
+ * and before requesting buffers on either plane.
+ */
+#define V4L2_CID_MPEG_VIDEOENC_H265_CHROMA_FACTOR_IDC (V4L2_CID_MPEG_BASE+570)
 
 /** @} */
 

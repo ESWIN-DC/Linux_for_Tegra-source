@@ -1,6 +1,7 @@
 /*
  * Copyright (C) 2014 Collabora Ltd.
  *     Author: Nicolas Dufresne <nicolas.dufresne@collabora.com>
+ * Copyright (c) 2021 NVIDIA CORPORATION. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -107,6 +108,9 @@ struct _GstV4l2Allocator
   GstAtomicQueue *free_queue;
   GstAtomicQueue *pending_queue;
 
+#ifdef USE_V4L2_TARGET_NV
+  gboolean enable_dynamic_allocation; /* If dynamic_allocation should be set */
+#endif
 };
 
 struct _GstV4l2AllocatorClass {
@@ -158,6 +162,11 @@ GstFlowReturn        gst_v4l2_allocator_dqbuf          (GstV4l2Allocator * alloc
 
 void                 gst_v4l2_allocator_reset_group    (GstV4l2Allocator * allocator,
                                                         GstV4l2MemoryGroup * group);
+#ifdef USE_V4L2_TARGET_NV
+void
+gst_v4l2_allocator_enable_dynamic_allocation (GstV4l2Allocator * allocator,
+                                              gboolean enable_dynamic_allocation);
+#endif
 
 G_END_DECLS
 

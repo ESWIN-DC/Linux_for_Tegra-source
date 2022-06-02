@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014-2019, NVIDIA CORPORATION. All rights reserved.
+ * Copyright (c) 2014-2021, NVIDIA CORPORATION. All rights reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -608,6 +608,7 @@ typedef struct
   gfloat ee_strength;
   guint sensor_id;
   guint sensor_mode;
+  guint framerate;
   guint flip_method;
   guint display_id;
   guint overlay_index;

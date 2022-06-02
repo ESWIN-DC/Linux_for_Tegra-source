@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2020, NVIDIA CORPORATION. All rights reserved.
+ * Copyright (c) 2019-2021, NVIDIA CORPORATION. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -67,6 +67,8 @@
 
 GST_DEBUG_CATEGORY_STATIC (gst_nv_v4l2_camera_src_debug);
 #define GST_CAT_DEFAULT gst_nv_v4l2_camera_src_debug
+
+#define MAX_SEARCH_COUNT 32
 
 enum
 {
@@ -371,7 +373,8 @@ static GstFlowReturn gst_nvv4l2camera_buffer_pool_acquire_buffer (
   GstFlowReturn ret = GST_FLOW_OK;
   GstMemory *mem = NULL;
   GstNVV4l2Memory *nv_mem = NULL;
-  gint r = 0;
+  struct v4l2_buffer tmp_v4l2_buf;
+  gint r = 0, i = 0;
 
   GST_DEBUG_OBJECT (bpool, "acquire_buffer");
 
@@ -428,6 +431,30 @@ static GstFlowReturn gst_nvv4l2camera_buffer_pool_acquire_buffer (
   if (-1 == ioctl(pool->video_fd, VIDIOC_DQBUF, nv_mem->nvcam_buf->buffer))
     goto dqbuf_error;
 
+  /* Search the buffer which driver returned */
+  if (nv_mem->nvcam_buf->buffer->m.fd != nv_mem->nvcam_buf->dmabuf_fd) {
+    memcpy (&tmp_v4l2_buf, nv_mem->nvcam_buf->buffer, sizeof (struct v4l2_buffer));
+    for (i = 0; i < MAX_SEARCH_COUNT; i ++) {
+      if (tmp_v4l2_buf.m.fd == nv_mem->nvcam_buf->dmabuf_fd)
+        break;
+
+      GST_WARNING_OBJECT(pool, "Search camera output buffer. Driver out fd: %d camera buffer fd: %d", tmp_v4l2_buf.m.fd, nv_mem->nvcam_buf->dmabuf_fd);
+
+      GST_BUFFER_POOL_CLASS (bpool_parent_class)->release_buffer (bpool, *buffer);
+      ret = GST_BUFFER_POOL_CLASS (bpool_parent_class)->acquire_buffer (bpool, buffer, params);
+
+      mem = gst_buffer_peek_memory (*buffer, 0);
+      if (!mem) {
+        goto no_memblk;
+      }
+      nv_mem = (GstNVV4l2Memory *) mem;
+    }
+    if (i == MAX_SEARCH_COUNT) {
+      goto no_buffer;
+    }
+    memcpy (nv_mem->nvcam_buf->buffer, &tmp_v4l2_buf, sizeof (struct v4l2_buffer));
+  }
+
   return ret;
 
 no_memblk:
@@ -458,7 +485,12 @@ select_error:
     ret = GST_FLOW_OK;
     return ret;
   }
-
+no_buffer:
+  {
+    GST_ERROR_OBJECT(pool, "Not found buffer which driver returned");
+    ret = GST_FLOW_ERROR;
+    return ret;
+  }
 }
 
 static GstFlowReturn
@@ -852,8 +884,7 @@ static gboolean gst_nv_v4l2_camera_set_caps (GstBaseSrc *base, GstCaps *caps)
 
   allocator->owner = src;
   config = gst_buffer_pool_get_config (src->pool);
-  gst_buffer_pool_config_set_allocator(config, GST_ALLOCATOR(allocator), NULL);
-  gst_object_unref(allocator);
+  gst_buffer_pool_config_set_allocator (config, GST_ALLOCATOR (allocator), NULL);
 
   if (src->buf_api)
     gst_buffer_pool_config_set_params (config, src->outcaps, sizeof(NvBufSurface), src->cap_buf, src->cap_buf);
@@ -861,6 +892,9 @@ static gboolean gst_nv_v4l2_camera_set_caps (GstBaseSrc *base, GstCaps *caps)
     gst_buffer_pool_config_set_params (config, src->outcaps, NvBufferGetSize(), src->cap_buf, src->cap_buf);
 
   gst_buffer_pool_set_config (src->pool, config);
+
+  if (allocator)
+    gst_object_unref (allocator);
 
   gst_buffer_pool_set_active (src->pool, TRUE);
 
@@ -1176,6 +1210,7 @@ gst_nv_v4l2_camera_src_finalize (GObject *object)
     src->videodev = NULL;
   }
 
+  G_OBJECT_CLASS (parent_class)->finalize (object);
 }
 
 static void

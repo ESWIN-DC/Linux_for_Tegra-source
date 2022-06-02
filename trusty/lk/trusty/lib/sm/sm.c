@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2013-2016 Google Inc. All rights reserved
- * Copyright (c) 2019, NVIDIA CORPORATION. All rights reserved
+ * Copyright (c) 2019-2021, NVIDIA CORPORATION. All rights reserved
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files
@@ -203,6 +203,16 @@ static void sm_return_and_wait_for_next_stdcall(long ret, int cpu)
 		if (args.smc_nr == SMC_SC_NOP) {
 			LTRACEF_LEVEL(3, "cpu %d, got nop\n", cpu);
 			ret = sm_nopcall_table[SMC_ENTITY(args.params[0])](&args);
+			if (SMC_NC_SIM_HANDLE_IRQ == args.params[0]) {
+				/*
+				 * This is a secure timer IRQ command from
+				 * Hypervisor. In this case, return immediately
+				 * even if ret == 0 to avoid sceduling other
+				 * threads and taking more time
+				 */
+				if (ret == 0)
+					ret = SM_ERR_NOP_DONE;
+			}
 		} else {
 			ret = sm_queue_stdcall(&args);
 		}

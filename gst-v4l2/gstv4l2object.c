@@ -2,7 +2,7 @@
  *
  * Copyright (C) 2001-2002 Ronald Bultje <rbultje@ronald.bitfreak.net>
  *               2006 Edgard Lima <edgard.lima@gmail.com>
- * Copyright (c) 2018-2021, NVIDIA CORPORATION. All rights reserved.
+ * Copyright (c) 2018-2022, NVIDIA CORPORATION. All rights reserved.
  *
  * gstv4l2object.c: base class for V4L2 elements
  *
@@ -3465,10 +3465,17 @@ gst_v4l2_object_set_format_full (GstV4l2Object * v4l2object, GstCaps * caps,
 #ifndef USE_V4L2_TARGET_NV
   gint width, height, fps_n, fps_d;
 #else
+  struct v4l2_ext_control ctl;
+  struct v4l2_ext_controls ctrls;
+  gint ret;
   guint width, height, fps_n, fps_d;
   GstV4l2VideoEnc *videoenc = NULL;
+  GstV4l2VideoDec *videodec = NULL;
   if (!strcmp (v4l2object->videodev, V4L2_DEVICE_PATH_NVENC)) {
     videoenc = GST_V4L2_VIDEO_ENC (v4l2object->element);
+  }
+  if (!strcmp (v4l2object->videodev, V4L2_DEVICE_PATH_NVDEC_MCCOY)) {
+    videodec = GST_V4L2_VIDEO_DEC (v4l2object->element);
   }
   GstV4l2VideoEncClass *klass = NULL;
   if (is_cuvid == FALSE) {
@@ -3748,6 +3755,32 @@ gst_v4l2_object_set_format_full (GstV4l2Object * v4l2object, GstCaps * caps,
     format.fmt.pix_mp.pixelformat = pixelformat = V4L2_PIX_FMT_MJPEG;
 #endif
 
+#ifdef USE_V4L2_TARGET_NV
+    if (is_cuvid == true) {
+        if (videodec) {
+        /*
+           Video sequences without B-frames i.e., All-Intra frames and IPPP... frames
+           should not have any decoding/display latency.
+           nvcuvid decoder has inherent display latency for some video contents
+           which do not have num_reorder_frames=0 in the VUI.
+           Strictly adhering to the standard, this display latency is expected.
+           In case, the user wants to force zero display latency for such contents, we set
+           bForce_zero_latency.
+
+           This CL adds the necessary support for zero display latency, if the video stream
+           is All-Intra or IPPP...
+           */
+        ctl.id = V4L2_CID_MPEG_VIDEO_CUDA_LOW_LATENCY;
+        ctl.value = videodec->cudadec_low_latency;
+        ctrls.count = 1;
+        ctrls.controls = &ctl ;
+        ret = v4l2object->ioctl (fd, VIDIOC_S_EXT_CTRLS, &ctrls);
+        if (ret)
+          goto invalid_ctrl;
+      }
+    }
+#endif
+
   if (try_only) {
     if (v4l2object->ioctl (fd, VIDIOC_TRY_FMT, &format) < 0)
       goto try_fmt_failed;
@@ -3757,8 +3790,6 @@ gst_v4l2_object_set_format_full (GstV4l2Object * v4l2object, GstCaps * caps,
   }
 
 #ifdef USE_V4L2_TARGET_NV
-  gint ret;
-
   struct v4l2_event_subscription sub;
 
   /*Subscribe eos event*/
@@ -3796,8 +3827,6 @@ gst_v4l2_object_set_format_full (GstV4l2Object * v4l2object, GstCaps * caps,
       }
     }
   }
-  struct v4l2_ext_control ctl;
-  struct v4l2_ext_controls ctrls;
 
   if (is_cuvid == FALSE) {
     ctl.id = V4L2_CID_MPEG_VIDEO_BUF_API_TYPE;
@@ -4677,8 +4706,13 @@ gst_v4l2_object_decide_allocation (GstV4l2Object * obj, GstQuery * query)
       gst_v4l2_buffer_pool_copy_at_threshold (GST_V4L2_BUFFER_POOL (pool),
           TRUE);
     } else {
+#ifdef USE_V4L2_TARGET_NV
+      gst_v4l2_buffer_pool_copy_at_threshold (GST_V4L2_BUFFER_POOL (pool),
+          TRUE);
+#else
       gst_v4l2_buffer_pool_copy_at_threshold (GST_V4L2_BUFFER_POOL (pool),
           FALSE);
+#endif
     }
 
   } else {

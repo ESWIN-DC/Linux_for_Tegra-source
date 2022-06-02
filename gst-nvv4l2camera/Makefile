@@ -30,7 +30,7 @@ CC := g++
 
 TARGET_DEVICE = $(shell gcc -dumpmachine | cut -f1 -d -)
 
-GST_INSTALL_DIR?=./gstreamer-1.0/
+GST_INSTALL_DIR?=/usr/lib/aarch64-linux-gnu/gstreamer-1.0/
 LIB_INSTALL_DIR?=/usr/lib/aarch64-linux-gnu/tegra/
 CFLAGS:=
 LIBS:= -lnvbuf_utils -lnvbufsurface
@@ -38,8 +38,7 @@ LIBS:= -lnvbuf_utils -lnvbufsurface
 
 SRCS := $(wildcard *.cpp)
 
-INCLUDES += -I./ -I../ \
-	-I./glib-2.0/pre-generated-headers/aarch64 -I./gstreamer-1.0/pre-generated-headers/aarch64
+INCLUDES += -I./ -I../
 
 PKGS := gstreamer-1.0 \
 	gstreamer-base-1.0 \
@@ -62,10 +61,7 @@ LDFLAGS = -Wl,--no-undefined -L$(LIB_INSTALL_DIR) -Wl,-rpath,$(LIB_INSTALL_DIR)
 
 LIBS += `pkg-config --libs $(PKGS)`
 
-all: prebuild $(SO_NAME)
-
-prebuild:
-	tar xf 3rdpartyheaders.tbz2 -C .
+all: $(SO_NAME)
 
 %.o: %.cpp
 	$(CC) -c $< $(CFLAGS) $(INCLUDES) -o $@

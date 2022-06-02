@@ -98,6 +98,7 @@ typedef struct NvArgusCamControls
   gfloat ExposureCompensation;
   gboolean AeLock;
   gboolean AwbLock;
+  Argus::AcRegion AeRegion;
 } NvArgusCamControls;
 /* NvArgusCameraSrc buffer */
 struct _GstNvArgusCameraSrcBuffer
@@ -143,6 +144,7 @@ struct _GstNvArgusCameraSrc
   gchar *exposureTimeString;
   gchar *gainRangeString;
   gchar *ispDigitalGainRangeString;
+  gchar *aeRegionString;
 
   GQueue *nvmm_buffers;
   GMutex nvmm_buffers_queue_lock;
@@ -183,11 +185,13 @@ struct _GstNvArgusCameraSrc
   gboolean aeAntibandingPropSet;
   gboolean exposureCompensationPropSet;
   gboolean aeLockPropSet;
+  gboolean aeRegionPropSet;
   gboolean awbLockPropSet;
   gboolean bufApi;
   gboolean argus_in_error;
   void *iRequest_ptr;
   void *iCaptureSession_ptr;
+  void *AeRegion_ptr;
   void *iEventProvider_ptr;
   void *iEventQueue_ptr;
   void *iAutoControlSettings_ptr;

@@ -3,7 +3,7 @@
  *     Authors Ayaka <ayaka@soulik.info>
  * Copyright (C) 2017 Collabora Ltd.
  *     Author: Nicolas Dufresne <nicolas.dufresne@collabora.com>
- * Copyright (c) 2018-2021, NVIDIA CORPORATION. All rights reserved.
+ * Copyright (c) 2018-2022, NVIDIA CORPORATION. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -74,7 +74,8 @@ gboolean default_nvbuf_api_version_new;
 #define DEFAULT_CUDAENC_GPU_ID   0
 #ifdef USE_V4L2_TARGET_NV
 GstVideoCodecFrame *
-gst_v4l2_video_enc_find_nearest_frame (GstBuffer * buf, GList * frames);
+gst_v4l2_video_enc_find_nearest_frame (GstV4l2VideoEnc *self,
+    GstBuffer * buf, GList * frames);
 #endif
 gboolean set_v4l2_video_encoder_properties (GstVideoEncoder * encoder);
 gboolean setQpRange (GstV4l2Object * v4l2object, guint label, guint MinQpI,
@@ -486,6 +487,8 @@ gst_v4l2_video_enc_open (GstVideoEncoder * encoder)
   GstV4l2VideoEnc *self = GST_V4L2_VIDEO_ENC (encoder);
   GstCaps *codec_caps;
 #ifdef USE_V4L2_TARGET_NV
+  const gchar *mimetype;
+  GstStructure *s;
   GstV4l2VideoEncClass *klass = NULL;
   if (is_cuvid == TRUE)
     klass = GST_V4L2_VIDEO_ENC_GET_CLASS (encoder);
@@ -526,6 +529,13 @@ gst_v4l2_video_enc_open (GstVideoEncoder * encoder)
     goto no_encoded_format;
 
 #ifdef USE_V4L2_TARGET_NV
+  s = gst_caps_get_structure (self->probed_srccaps, 0);
+  mimetype = gst_structure_get_name (s);
+  if (g_str_equal (mimetype, "video/x-h264") && self->slice_output) {
+    gst_structure_remove_field (s, "alignment");
+    gst_structure_set (s, "alignment", G_TYPE_STRING, "nal", NULL);
+  }
+
   if (self->measure_latency) {
     if (gst_v4l2_trace_file_open (&self->tracing_file_enc) == 0) {
       g_print ("%s: open trace file successfully\n", __func__);
@@ -735,6 +745,10 @@ gst_v4l2_video_enc_set_format (GstVideoEncoder * encoder,
   GstV4l2Error error = GST_V4L2_ERROR_INIT;
   GstCaps *outcaps;
   GstVideoCodecState *output;
+#ifdef USE_V4L2_TARGET_NV
+  const gchar *mimetype;
+  GstStructure *s;
+#endif
 
   GST_DEBUG_OBJECT (self, "Setting format: %" GST_PTR_FORMAT, state->caps);
 
@@ -756,6 +770,20 @@ gst_v4l2_video_enc_set_format (GstVideoEncoder * encoder,
 
   outcaps = gst_pad_get_pad_template_caps (encoder->srcpad);
   outcaps = gst_caps_make_writable (outcaps);
+
+#ifdef USE_V4L2_TARGET_NV
+  s = gst_caps_get_structure (outcaps, 0);
+  mimetype = gst_structure_get_name (s);
+  if (g_str_equal (mimetype, "video/x-h264")) {
+    gst_structure_remove_field (s, "alignment");
+    if (self->slice_output) {
+      gst_structure_set (s, "alignment", G_TYPE_STRING, "nal", NULL);
+    } else {
+      gst_structure_set (s, "alignment", G_TYPE_STRING, "au", NULL);
+    }
+  }
+#endif
+
   output = gst_video_encoder_set_output_state (encoder, outcaps, state);
   gst_video_codec_state_unref (output);
 
@@ -1013,6 +1041,9 @@ gst_v4l2_video_enc_negotiate (GstVideoEncoder * encoder)
   }
 #endif
 
+  if (allowed_caps)
+    gst_caps_unref (allowed_caps);
+
   GST_DEBUG_OBJECT (self, "Selected %s profile %s at level %s",
       klass->codec_name, ctx.profile, ctx.level);
 
@@ -1024,6 +1055,8 @@ gst_v4l2_video_enc_negotiate (GstVideoEncoder * encoder)
 
   if (klass->level_cid)
     gst_structure_set (s, "level", G_TYPE_STRING, ctx.level, NULL);
+
+  gst_video_codec_state_unref (state);
 
   if (!GST_VIDEO_ENCODER_CLASS (parent_class)->negotiate (encoder))
     return FALSE;
@@ -1049,7 +1082,8 @@ not_negotiated:
 
 #ifdef USE_V4L2_TARGET_NV
 GstVideoCodecFrame *
-gst_v4l2_video_enc_find_nearest_frame (GstBuffer * buf, GList * frames)
+gst_v4l2_video_enc_find_nearest_frame (GstV4l2VideoEnc *self,
+    GstBuffer * buf, GList * frames)
 {
   GstVideoCodecFrame *best = NULL;
   GstClockTimeDiff best_diff = G_MAXINT64;
@@ -1071,8 +1105,34 @@ gst_v4l2_video_enc_find_nearest_frame (GstBuffer * buf, GList * frames)
     }
   }
 
-  if (best)
+  /* For slice output mode, video encoder will ouput multi buffer with
+   * one input buffer. Which will cause frames list haven't any entry.
+   * So the best will be NULL. Video bit stream will be discard in
+   * function gst_v4l2_video_enc_loop() when the best is NULL.
+   * Here reuse previous frame when the best is NULL to handle discard
+   * bit stream issue when slice output mode enabled. */
+  /* Video encoder will output the same PTS for slices. Reuse previous
+   * frame for the same PTS slices */
+  if (self->slice_output && self->best_prev
+          && GST_CLOCK_TIME_IS_VALID (buf->pts)
+          && GST_CLOCK_TIME_IS_VALID (self->buf_pts_prev)
+          && buf->pts == self->buf_pts_prev)
+      best = NULL;
+  self->buf_pts_prev = buf->pts;
+
+  if (best) {
     gst_video_codec_frame_ref (best);
+    if (self->slice_output) {
+      if (self->best_prev)
+        gst_video_codec_frame_unref (self->best_prev);
+      self->best_prev = gst_video_codec_frame_ref (best);
+    }
+  } else if (self->slice_output) {
+    best = gst_video_codec_frame_ref (self->best_prev);
+    /* Presentation_frame_number == 0 means discontinues. Need avoid it */
+    if (best->presentation_frame_number == 0)
+      best->presentation_frame_number = 1;
+  }
 
   g_list_foreach (frames, (GFunc) gst_video_codec_frame_unref, NULL);
   g_list_free (frames);
@@ -1165,7 +1225,7 @@ gst_v4l2_video_enc_loop (GstVideoEncoder * encoder)
     goto beach;
 
 #ifdef USE_V4L2_TARGET_NV
-  frame = gst_v4l2_video_enc_find_nearest_frame (buffer,
+  frame = gst_v4l2_video_enc_find_nearest_frame (self, buffer,
           gst_video_encoder_get_frames (GST_VIDEO_ENCODER (self)));
 #else
   frame = gst_v4l2_video_enc_get_oldest_frame (encoder);
@@ -1623,6 +1683,9 @@ gst_v4l2_video_enc_init (GstV4l2VideoEnc * self)
   self->maxperf_enable = FALSE;
   self->measure_latency = FALSE;
   self->nvbuf_api_version_new = default_nvbuf_api_version_new;
+  self->slice_output = FALSE;
+  self->best_prev = NULL;
+  self->buf_pts_prev = GST_CLOCK_STIME_NONE;
   if (is_cuvid == TRUE)
     self->cudaenc_gpu_id = DEFAULT_CUDAENC_GPU_ID;
 

@@ -2,7 +2,7 @@ DISTCHECK_CONFIGURE_FLAGS=--enable-gtk-doc
 
 SUBDIRS = \
 	gst-libs ext pkgconfig \
-	m4 common po tools
+	m4 common docs po tools
 
 DIST_SUBDIRS = \
 	gst-libs ext pkgconfig \

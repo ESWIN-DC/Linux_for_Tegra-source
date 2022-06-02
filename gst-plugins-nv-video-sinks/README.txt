@@ -1,6 +1,6 @@
 ###############################################################################
 #
-# Copyright (c) 2019, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2019-2022, NVIDIA CORPORATION.  All rights reserved.
 #
 # NVIDIA Corporation and its licensors retain all intellectual property
 # and proprietary rights in and to this software, related documentation
@@ -20,15 +20,19 @@ Steps to compile the "gst-plugins-nv-video-sinks" sources:
 		gstreamer1.0-libav libgstreamer1.0-dev \
 		libgstreamer-plugins-base1.0-dev libegl1-mesa-dev
 
-2) Extract the package "libgstnvvideosinks_src.tbz2" as follow:
+2) Install CUDA Runtime 10.0+
+
+3) Extract the package "libgstnvvideosinks_src.tbz2" as follow:
 
 	tar xvjf libgstnvvideosinks_src.tbz2`
 
 4) cd "gst-plugins-nv-video-sinks"
 
+5) Export the appropriate CUDA_VER using - "export CUDA_VER=<cuda-version>"
+
 5) run "make" to create "libgstnvvideosinks.so"
 
-6) run "make install" to install "libgstnvvideosinks.so" in
+6) run "sudo make install" to install "libgstnvvideosinks.so" in
    "/usr/lib/aarch64-linux-gnu/gstreamer-1.0".
 
 7) run "make install DEST_DIR=<location>" to install at different <location>.

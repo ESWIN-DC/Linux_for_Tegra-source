@@ -1,6 +1,6 @@
 ###############################################################################
 #
-# Copyright (c) 2019-2020, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2021-2022, NVIDIA CORPORATION.  All rights reserved.
 #
 # NVIDIA Corporation and its licensors retain all intellectual property
 # and proprietary rights in and to this software, related documentation
@@ -10,8 +10,14 @@
 #
 ###############################################################################
 
-CC:= gcc
-TARGET_NAME := libgstnvvideosinks.so
+ifneq ($(MAKECMDGOALS),install)
+ifeq ($(CUDA_VER),)
+  $(error "CUDA_VER is not set. Set it by running - "export CUDA_VER=<cuda-version>"")
+endif
+endif
+
+SO_NAME := libgstnvvideosinks.so
+DEST_DIR ?= /usr/lib/aarch64-linux-gnu/gstreamer-1.0
 
 SRCS := common/context.c \
 	common/display.c \
@@ -24,61 +30,49 @@ SRCS := common/context.c \
 	gstnvvideosinks.c \
 	nv3dsink/gstnv3dsink.c
 
-IS_GST_PLUGIN:=1
-
-CFLAGS := -fPIC \
-    -DNV_VIDEO_SINKS_HAS_EGL \
-    -DNV_VIDEO_SINKS_HAS_GL \
-    -DNV_VIDEO_SINKS_HAS_NV3DSINK \
-    -DNV_VIDEO_SINKS_HAS_X11
-
-# 	disable in jetson
-#   -DIS_DESKTOP
-
-NEEDS_CUDA:=1
-
-IGNORE_DS_PACKAGE_NAMING:=1
-
-PACKAGE_BINARY_IN_DS:=1
-
-LDFLAGS:= -shared
-
-CAN_PUBLIC_LINK:=1
-
-INC_PATHS = \
-	-Icommon \
-	-Icommon/egl \
-	-Icommon/renderer \
-	-Icommon/x11 \
-	-I../../../3rdparty/gst/gst-nveglglessink/gst-libs/ \
-	-I../../../nvutils/nvbufsurface/ \
-	-I../ \
-	-I/usr/local/cuda-10.2/targets/aarch64-linux/include \
-	-I../gstegl_src/gst-egl/gst-libs/
+INCLUDES += -I./common \
+	-I./common/egl \
+	-I./common/renderer \
+	-I./common/x11 \
+	-I/usr/local/include/gstreamer-1.0 \
+	-I/usr/local/cuda-$(CUDA_VER)/targets/aarch64-linux/include/ \
+	-I../
 
 PKGS := glib-2.0 \
 	gstreamer-1.0 \
 	gstreamer-base-1.0 \
 	gstreamer-video-1.0
 
-CFLAGS += `pkg-config --cflags $(PKGS)` $(INC_PATHS)
+OBJS := $(SRCS:.c=.o)
 
-LDFLAGS = -Wl,--no-undefined -L/usr/lib/aarch64-linux-gnu/tegra  \
-	-L/usr/local/cuda-10.2/targets/aarch64-linux/lib/ \
+CFLAGS := -fPIC \
+	-DNV_VIDEO_SINKS_HAS_EGL \
+	-DNV_VIDEO_SINKS_HAS_GL \
+	-DNV_VIDEO_SINKS_HAS_NV3DSINK \
+	-DNV_VIDEO_SINKS_HAS_X11
 
-LIBS = -lnvbufsurface -lGLESv2 -lEGL -lX11 -lm -lcuda -lcudart_static -ldl -lrt -lnvbuf_utils
+CFLAGS += `pkg-config --cflags $(PKGS)`
+
+LDFLAGS = -Wl,--no-undefined -L/usr/lib/aarch64-linux-gnu/tegra -L/usr/local/cuda-$(CUDA_VER)/targets/aarch64-linux/lib/
+
+LIBS = -lnvbuf_utils -lnvbufsurface -lGLESv2 -lEGL -lX11 -lm -lcuda -lcudart
 
 LIBS += `pkg-config --libs $(PKGS)`
 
-# include ../../../deepstream/sdk/Rules.mk
+all: $(SO_NAME)
 
-all: $(TARGET_NAME)
+%.o: %.c
+	$(CC) -c $< $(CFLAGS) $(INCLUDES) -o $@
 
-OBJS := $(SRCS:.c=.o)
+$(SO_NAME): $(OBJS)
+	$(CC) -shared -o $(SO_NAME) $(OBJS) $(LIBS) $(LDFLAGS)
 
-libgstnvvideosinks.so: $(OBJS)
-	@echo "Linking: $@"
-	$(CC) -shared -o $@ $^ $(CFLAGS) $(LDFLAGS) $(LIBS)
+.PHONY: install
+$(DEST_DIR):
+	mkdir -p $(DEST_DIR)
+install: $(SO_NAME) | $(DEST_DIR)
+	cp -vp $(SO_NAME) $(DEST_DIR)
 
+.PHONY: clean
 clean:
-	$(RM) $(OBJS) libgstnvvideosinks.so
+	rm -rf $(OBJS) $(SO_NAME)

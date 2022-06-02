@@ -3,7 +3,7 @@
  * Copyright (C) 2001-2002 Ronald Bultje <rbultje@ronald.bitfreak.net>
  *               2006 Edgard Lima <edgard.lima@gmail.com>
  *               2009 Texas Instruments, Inc - http://www.ti.com/
- * Copyright (c) 2018-2020, NVIDIA CORPORATION. All rights reserved.
+ * Copyright (c) 2018-2021, NVIDIA CORPORATION. All rights reserved.
  *
  * gstv4l2bufferpool.c V4L2 buffer pool class
  *
@@ -925,12 +925,24 @@ gst_v4l2_buffer_pool_streamon (GstV4l2BufferPool * pool)
     case GST_V4L2_IO_DMABUF:
     case GST_V4L2_IO_DMABUF_IMPORT:
       if (!V4L2_TYPE_IS_OUTPUT (pool->obj->type)) {
+        guint num_queued;
+        guint i, n = 0;
+
+        num_queued = g_atomic_int_get (&pool->num_queued);
+#ifdef USE_V4L2_TARGET_NV
+        GST_DEBUG_OBJECT (pool, "num_allocated %d num_queued %d allocator count %d \
+                          dynamic_allocation %d\n", pool->num_allocated, num_queued,
+                          pool->vallocator->count, pool->enable_dynamic_allocation);
+#endif
+        if (num_queued < pool->num_allocated)
+          n = pool->num_allocated - num_queued;
+
         /* For captures, we need to enqueue buffers before we start streaming,
          * so the driver don't underflow immediatly. As we have put then back
          * into the base class queue, resurect them, then releasing will queue
          * them back. */
-        while (gst_v4l2_buffer_pool_resurect_buffer (pool) == GST_FLOW_OK)
-          continue;
+        for (i = 0; i < n; i++)
+          gst_v4l2_buffer_pool_resurect_buffer (pool);
       }
 
       if (obj->ioctl (pool->video_fd, VIDIOC_STREAMON, &obj->type) < 0)
@@ -960,10 +972,13 @@ gst_v4l2_buffer_pool_streamoff (GstV4l2BufferPool * pool)
 {
   GstBufferPoolClass *pclass = GST_BUFFER_POOL_CLASS (parent_class);
   GstV4l2Object *obj = pool->obj;
+  GstBuffer *buffers[VIDEO_MAX_FRAME] = {NULL};
   gint i;
 
   if (!pool->streaming)
     return;
+
+  GST_OBJECT_LOCK (pool);
 
   switch (obj->mode) {
     case GST_V4L2_IO_MMAP:
@@ -988,17 +1003,23 @@ gst_v4l2_buffer_pool_streamoff (GstV4l2BufferPool * pool)
 
   for (i = 0; i < VIDEO_MAX_FRAME; i++) {
     if (pool->buffers[i]) {
-      GstBuffer *buffer = pool->buffers[i];
-      GstBufferPool *bpool = GST_BUFFER_POOL (pool);
-
+      buffers[i] = pool->buffers[i];
       pool->buffers[i] = NULL;
+      g_atomic_int_add (&pool->num_queued, -1);
+    }
+  }
+
+  GST_OBJECT_UNLOCK (pool);
+
+  for (i = 0; i < VIDEO_MAX_FRAME; i++) {
+    if (buffers[i]) {
+      GstBuffer *buffer = buffers[i];
+      GstBufferPool *bpool = GST_BUFFER_POOL (pool);
 
       if (V4L2_TYPE_IS_OUTPUT (pool->obj->type))
         gst_v4l2_buffer_pool_release_buffer (bpool, buffer);
       else                      /* Don't re-enqueue capture buffer on stop */
         pclass->release_buffer (bpool, buffer);
-
-      g_atomic_int_add (&pool->num_queued, -1);
     }
   }
 }
@@ -1049,6 +1070,7 @@ gst_v4l2_buffer_pool_start (GstBufferPool * bpool)
 
       count = gst_v4l2_allocator_start (pool->vallocator, min_buffers,
           V4L2_MEMORY_MMAP);
+      pool->num_allocated = count;
 
       if (count < GST_V4L2_MIN_BUFFERS) {
         min_buffers = count;
@@ -1080,6 +1102,7 @@ gst_v4l2_buffer_pool_start (GstBufferPool * bpool)
 
       count = gst_v4l2_allocator_start (pool->vallocator, min_buffers,
           V4L2_MEMORY_USERPTR);
+      pool->num_allocated = count;
 
       /* There is no rational to not get what we asked */
       if (count < min_buffers) {
@@ -1100,6 +1123,7 @@ gst_v4l2_buffer_pool_start (GstBufferPool * bpool)
 
       count = gst_v4l2_allocator_start (pool->vallocator, min_buffers,
           V4L2_MEMORY_DMABUF);
+      pool->num_allocated = count;
 
       /* There is no rational to not get what we asked */
       if (count < min_buffers) {
@@ -2071,7 +2095,6 @@ gst_v4l2_buffer_pool_process (GstV4l2BufferPool * pool, GstBuffer ** buf)
           GstBuffer *tmp;
 
           if ((*buf)->pool == bpool) {
-#ifndef USE_V4L2_TARGET_NV
             guint num_queued;
             gsize size = gst_buffer_get_size (*buf);
 
@@ -2087,7 +2110,11 @@ gst_v4l2_buffer_pool_process (GstV4l2BufferPool * pool, GstBuffer ** buf)
                 num_queued);
 
             /* If we have no more buffer, and can allocate it time to do so */
+#ifdef USE_V4L2_TARGET_NV
+            if (num_queued == 0 && pool->enable_dynamic_allocation) {
+#else
             if (num_queued == 0) {
+#endif
               if (GST_V4L2_ALLOCATOR_CAN_ALLOCATE (pool->vallocator, MMAP)) {
                 ret = gst_v4l2_buffer_pool_resurect_buffer (pool);
                 if (ret == GST_FLOW_OK)
@@ -2096,6 +2123,18 @@ gst_v4l2_buffer_pool_process (GstV4l2BufferPool * pool, GstBuffer ** buf)
             }
 
             /* start copying buffers when we are running low on buffers */
+#ifdef USE_V4L2_TARGET_NV
+            GST_DEBUG_OBJECT (pool, "num_queued %d copy_threshold %d dynamic_allocation %d\n",
+                num_queued, pool->copy_threshold, pool->enable_dynamic_allocation);
+
+            if (num_queued < pool->copy_threshold && pool->enable_dynamic_allocation) {
+              if (GST_V4L2_ALLOCATOR_CAN_ALLOCATE (pool->vallocator, MMAP)) {
+                ret = gst_v4l2_buffer_pool_resurect_buffer (pool);
+                if (ret == GST_FLOW_OK)
+                  goto done;
+              }
+            }
+#else
             if (num_queued < pool->copy_threshold) {
               GstBuffer *copy;
 
@@ -2395,6 +2434,19 @@ gst_v4l2_buffer_pool_flush (GstBufferPool * bpool)
 }
 
 #ifdef USE_V4L2_TARGET_NV
+void
+gst_v4l2_buffer_pool_enable_dynamic_allocation (GstV4l2BufferPool * pool,
+    gboolean enable_dynamic_allocation)
+{
+  GST_DEBUG_OBJECT (pool, "dynamic allocation enable %d", enable_dynamic_allocation);
+
+  GST_OBJECT_LOCK (pool);
+  pool->enable_dynamic_allocation = enable_dynamic_allocation;
+  if (pool->vallocator)
+    gst_v4l2_allocator_enable_dynamic_allocation (pool->vallocator, enable_dynamic_allocation);
+  GST_OBJECT_UNLOCK (pool);
+}
+
 gint
 get_motion_vectors(GstV4l2Object *obj, guint32 bufferIndex,
             v4l2_ctrl_videoenc_outputbuf_metadata_MV *enc_mv_metadata)
